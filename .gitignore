@@ -1,0 +1,17 @@
+# Bỏ qua các thư mục sinh ra khi build ROS2
+build/
+install/
+log/
+
+# Bỏ qua bộ nhớ đệm NMPC (ACADOS)
+nmpc_build/
+*.json
+
+# Bỏ qua các thư mục cache của Python
+__pycache__/
+*.pyc
+
+# Bỏ qua các thư mục tự tạo của hệ thống và IDE
+.vscode/
+.idea/
+.DS_Store

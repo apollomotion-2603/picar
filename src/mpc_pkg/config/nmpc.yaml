@@ -1,0 +1,32 @@
+nmpc_node:
+  ros__parameters:
+    # Vehicle params
+    lf: 0.11
+    lr: 0.11
+    tau_v: 0.1
+
+    # Solver
+    N: 30
+    Tf: 1.0
+    ctrl_hz: 30
+    timeout: 1.0
+
+    # Cost weights
+    w_n: 200.0
+    w_alpha: 100.0
+    w_delta: 10.0
+    w_v: 10.0
+    w_s_e: 1.0
+    w_n_e: 8000.0
+    w_a_e: 5000.0
+
+    # Constraints
+    delta_max: 0.6109
+    v_max: 0.8
+    v_min: 0.0
+    n_max: 0.20
+    kappa_speed_factor: 3.0
+    v_min_curve: 0.25
+
+    # EKF
+    ekf_timeout: 1.0

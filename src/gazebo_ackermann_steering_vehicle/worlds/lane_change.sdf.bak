@@ -1,0 +1,119 @@
+<?xml version="1.0" ?>
+<!--
+  ISO 3888-1 Double Lane Change — RC 1/16 Scale
+  World: 5.49 × 0.60 m
+  A (entry lane) = 0.2205 m
+  B (offset lane) = 0.2700 m
+  Lateral offset  = 0.2452 m
+  Sections [x]: 0 | 1.08 | 2.295 | 3.285 | 4.41 | 5.49
+  Spawn: x=0.54, y=0.0, yaw=0 (entry lane CL, mid entry straight)
+-->
+<sdf version="1.8">
+  <world name="lane_change">
+
+    <!-- Physics -->
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Plugins -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <!-- Lighting -->
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.3 0.3 0.3 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ambient -->
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.4 0.6 0.8 1</background>
+    </scene>
+
+    <!-- ── Track plane ─────────────────────────────────────────── -->
+    <model name="lane_track">
+      <static>true</static>
+      <pose>2.745 0.135 0 0 0 0</pose>
+
+      <link name="track_link">
+        <collision name="track_collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>5.49 0.60</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1.0</mu>
+                <mu2>1.0</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+
+        <visual name="track_visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>5.49 0.60</size>
+            </plane>
+          </geometry>
+          <material>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>materials/textures/lane_change.png</albedo_map>
+                <metalness>0.0</metalness>
+                <roughness>1.0</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ── Ground plane (outside track, gray) ─────────────────── -->
+    <model name="ground">
+      <static>true</static>
+      <pose>0 0 -0.001 0 0 0</pose>
+      <link name="ground_link">
+        <collision name="ground_col">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="ground_vis">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+          <material>
+            <diffuse>0.65 0.65 0.65 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
