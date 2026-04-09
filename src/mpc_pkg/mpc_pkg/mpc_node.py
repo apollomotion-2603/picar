@@ -109,11 +109,11 @@ class NMPCNode(Node):
         self.declare_parameter('w_alpha', 100.0)
         self.declare_parameter('w_delta', 10.0)
         self.declare_parameter('w_v', 10.0)
-        self.declare_parameter('w_s_e', 20.0)
-        self.declare_parameter('w_n_e', 2000.0)
+        self.declare_parameter('w_s_e', 100.0)
+        self.declare_parameter('w_n_e', 1000.0)
         self.declare_parameter('w_a_e', 5000.0)
         self.declare_parameter('delta_max', 0.6109)
-        self.declare_parameter('v_max', 2.0)
+        self.declare_parameter('v_max', 3.0)
         self.declare_parameter('v_min', 0.0)
         self.declare_parameter('n_max', 0.20)
         self.declare_parameter('kappa_speed_factor', 8.0)
@@ -172,6 +172,11 @@ class NMPCNode(Node):
         self.ekf_v       = None
         self.ekf_healthy = False
 
+        self.poly_a = 0.0
+        self.poly_b = 0.0
+        self.poly_c = 0.0
+        self.poly_d = 0.0
+
         self._warm_start(self.x_est)
 
         # ── Publishers ──
@@ -201,6 +206,11 @@ class NMPCNode(Node):
         self.kappa     = msg.kappa
         self.lane_ok   = True
         self.last_lane_time = self.get_clock().now()
+        
+        self.poly_a = msg.coeff_a
+        self.poly_b = msg.coeff_b
+        self.poly_c = msg.coeff_c
+        self.poly_d = msg.coeff_d
 
         kappa_abs = abs(msg.kappa)
         self.v_ref_adaptive = float(np.clip(
@@ -231,12 +241,27 @@ class NMPCNode(Node):
         self.solver.set(0, 'lbx', self.x_est)
         self.solver.set(0, 'ubx', self.x_est)
 
-        for i in range(self.N + 1):
-            self.solver.set(i, 'p', np.array([self.kappa]))
-
-        v_ub = np.array([self.DELTA_MAX, self.v_ref_adaptive])
+        dt_step = self.TF / self.N
         for i in range(self.N):
-            self.solver.constraints_set(i, 'ubu', v_ub)
+            s_pred = max(self.x_est[3], 0.1) * i * dt_step
+            xp  = 3.0 * self.poly_a * s_pred**2 + 2.0 * self.poly_b * s_pred + self.poly_c
+            xpp = 6.0 * self.poly_a * s_pred + 2.0 * self.poly_b
+            kappa_pred = xpp / max((1.0 + xp**2)**1.5, 1e-6)
+            
+            self.solver.set(i, 'p', np.array([kappa_pred]))
+            
+            # Dynamic predictive braking bound
+            v_ref_i = float(np.clip(
+                self.V_MAX / (1.0 + self.KAPPA_FACTOR * abs(kappa_pred)),
+                self.V_MIN_CURVE, self.V_MAX))
+            self.solver.constraints_set(i, 'ubu', np.array([self.DELTA_MAX, v_ref_i]))
+
+        # Terminal node parameter
+        s_end = max(self.x_est[3], 0.1) * self.N * dt_step
+        xp_end  = 3.0 * self.poly_a * s_end**2 + 2.0 * self.poly_b * s_end + self.poly_c
+        xpp_end = 6.0 * self.poly_a * s_end + 2.0 * self.poly_b
+        kappa_end = xpp_end / max((1.0 + xp_end**2)**1.5, 1e-6)
+        self.solver.set(self.N, 'p', np.array([kappa_end]))
 
         t0     = time.time()
         status = self.solver.solve()
@@ -280,7 +305,7 @@ class NMPCNode(Node):
                 f'v={self.x_est[3]:.2f}m/s({v_src}) '
                 f'δ={np.degrees(delta_cmd):.2f}° '
                 f'κ={self.kappa:.3f} '
-                f'v_ref={self.v_ref_adaptive:.2f} '
+                f'v_cmd={v_cmd:.2f} '
                 f't={t_ms:.1f}ms')
 
     def _warm_start(self, x0):
