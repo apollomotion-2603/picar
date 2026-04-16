@@ -164,6 +164,7 @@ class NMPCNode(Node):
         self.x_est          = np.array([0.0, 0.0, 0.0, 0.3])
         self.u_prev         = np.array([0.0, 0.3])
         self.kappa          = 0.0
+        self.kappa_smooth    = 0.0  # EMA-smoothed kappa cho v_ref_adaptive và log
         self.v_ref_adaptive = 0.3
         self.lane_ok        = False
         self.last_lane_time = self.get_clock().now()
@@ -210,7 +211,9 @@ class NMPCNode(Node):
             return
         self.perc_n     = msg.e_y
         self.perc_alpha = msg.e_psi
-        self.kappa      = msg.kappa
+        self.kappa      = msg.kappa   # raw kappa cho horizon polynomial predict
+        # Smooth kappa cho v_ref_adaptive: tránh speed fluctuation do noise
+        self.kappa_smooth = 0.70 * self.kappa_smooth + 0.30 * msg.kappa
         self.lane_ok   = True
         self.last_lane_time = self.get_clock().now()
         
@@ -222,7 +225,8 @@ class NMPCNode(Node):
         if msg.s_max > 0.05:
             self.perc_s_max = msg.s_max
 
-        kappa_abs = abs(msg.kappa)
+        # Dùng kappa_smooth cho v_ref_adaptive — tránh brake/accelerate erratic
+        kappa_abs = abs(self.kappa_smooth)
         self.v_ref_adaptive = float(np.clip(
             self.V_MAX / (1.0 + self.KAPPA_FACTOR * kappa_abs),
             self.V_MIN_CURVE, self.V_MAX))
@@ -335,7 +339,7 @@ class NMPCNode(Node):
                 f'α={np.degrees(self.x_est[2]):.2f}° '
                 f'v={self.x_est[3]:.2f}m/s({v_src}) '
                 f'δ={np.degrees(delta_cmd):.2f}° '
-                f'κ={self.kappa:.3f} '
+                f'κ={self.kappa_smooth:.3f}(s={self.kappa:.3f}) '
                 f'v_cmd={v_cmd:.2f} '
                 f't={t_ms:.1f}ms')
 

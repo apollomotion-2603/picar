@@ -10,8 +10,8 @@ perception_node:
 
     # Sliding Window
     n_windows: 10
-    win_width: 80     # Giảm 140→80: tránh bắt 2 lane marking cùng lúc khi cua
-    min_pixels: 15    # Giảm 20→15: detect lane yếu hơn trong cua
+    win_width: 100    # 80 quá hẹp → mất tracking khi lane marking dịch chuyển trong DLC
+    min_pixels: 20    # lại 20 → giảm false detection từ spurious pixels
 
     # Arc-length
     s_max_m: 0.7      # Giảm 1.0→0.7: 0.7m = 2.3× thân xe, ít noise hơn khi cua xa

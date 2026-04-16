@@ -14,7 +14,7 @@ from std_srvs.srv import Trigger
 
 LANE_STOP_TIMEOUT = 1.5   # giây không detect lane → auto STOP
 LANE_OUT_TIMEOUT  = 1.5   # giây |e_y| > N_MAX → xe đã rời khỏi làn, auto STOP
-N_MAX_STOP        = 0.18  # [m] ngưỡng lateral offset coi là “lạc làn” (mềm hơn n_max=0.20)
+N_MAX_STOP        = 0.22  # [m] tăng 0.18→0.22: tránh false trigger khi xe DLC transition
 MAP_CONFIGS = {
     1: {'world':'lane_track','x':0.0,'y':1.0,'z':0.05,'yaw':0.0},
     2: {'world':'track_test','x':0.0,'y':-2.666,'z':0.05,'yaw':0.0},
