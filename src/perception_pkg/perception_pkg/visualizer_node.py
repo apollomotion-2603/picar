@@ -14,13 +14,7 @@ from cv_bridge import CvBridge
 import cv2
 import numpy as np
 
-SRC = np.float32([[172, 151], [471, 151], [609, 368], [29, 368]])
-DST = np.float32([[50,0],[250,0],[250,500],[50,500]])
-BEV_W, BEV_H = 300, 500
-SCALE = 0.50 / (250 - 50)
-N_WINDOWS = 10
-WIN_W     = 60
-MIN_PIX   = 20
+# Constants chỉ dùng cho grid layout và màu sắc — không liên quan đến BEV
 
 GRID_W = 320   # mỗi cell trong grid
 GRID_H = 260
@@ -48,7 +42,33 @@ class VisualizerNode(Node):
     def __init__(self):
         super().__init__("visualizer_node")
         self.bridge = CvBridge()
-        self.H = cv2.getPerspectiveTransform(SRC, DST)
+
+        # Đọc params từ yaml (giống perception_node — phải khới động cùng params-file)
+        self.declare_parameter('bev_src', [172.0,151.0,471.0,151.0,609.0,368.0,29.0,368.0])
+        self.declare_parameter('bev_dst', [100.0,0.0,300.0,0.0,300.0,500.0,100.0,500.0])
+        self.declare_parameter('bev_width',  400)
+        self.declare_parameter('bev_height', 500)
+        self.declare_parameter('bev_scale',  0.0025)
+        self.declare_parameter('n_windows',  10)
+        self.declare_parameter('win_width',  80)
+        self.declare_parameter('min_pixels', 15)
+
+        src_flat = self.get_parameter('bev_src').value
+        dst_flat = self.get_parameter('bev_dst').value
+        self.BEV_W     = self.get_parameter('bev_width').value
+        self.BEV_H     = self.get_parameter('bev_height').value
+        self.SCALE     = self.get_parameter('bev_scale').value
+        self.N_WIN     = self.get_parameter('n_windows').value
+        self.WIN_W     = self.get_parameter('win_width').value
+        self.MIN_PIX   = self.get_parameter('min_pixels').value
+
+        SRC = np.float32(src_flat).reshape(4, 2)
+        DST = np.float32(dst_flat).reshape(4, 2)
+        self.SRC = SRC
+        self.H   = cv2.getPerspectiveTransform(SRC, DST)
+        self.get_logger().info(
+            f'Visualizer: BEV={self.BEV_W}x{self.BEV_H} scale={self.SCALE}m/px '
+            f'WIN_W={self.WIN_W}px')
 
         self.sub  = self.create_subscription(
             Image, "/camera/image_raw", self.callback, 10)
@@ -66,23 +86,23 @@ class VisualizerNode(Node):
 
         # ── VIEW 1: Raw + ROI ──
         v1 = img.copy()
-        roi_pts = SRC.astype(np.int32).reshape((-1,1,2))
+        roi_pts = self.SRC.astype(np.int32).reshape((-1,1,2))
         overlay = v1.copy()
         cv2.fillPoly(overlay, [roi_pts], (0,255,0))
         cv2.addWeighted(overlay, 0.15, v1, 0.85, 0, v1)
         cv2.polylines(v1, [roi_pts], True, CLR_ROI, 2)
-        for i,(x,y) in enumerate(SRC.astype(int)):
+        for i,(x,y) in enumerate(self.SRC.astype(int)):
             cv2.circle(v1, (x,y), 5, CLR_ROI, -1)
         put_text(v1, "1: Raw + ROI", 0, (200,200,200))
 
         # ── VIEW 2: BEV ──
-        bev = cv2.warpPerspective(img, self.H, (BEV_W, BEV_H))
+        bev = cv2.warpPerspective(img, self.H, (self.BEV_W, self.BEV_H))
         v2  = bev.copy()
-        for x in range(0, BEV_W, 50):
-            cv2.line(v2,(x,0),(x,BEV_H),(50,50,50),1)
-        for y in range(0, BEV_H, 50):
-            cv2.line(v2,(0,y),(BEV_W,y),(50,50,50),1)
-        cv2.line(v2,(BEV_W//2,0),(BEV_W//2,BEV_H),CLR_REF,1)
+        for x in range(0, self.BEV_W, 50):
+            cv2.line(v2,(x,0),(x,self.BEV_H),(50,50,50),1)
+        for y in range(0, self.BEV_H, 50):
+            cv2.line(v2,(0,y),(self.BEV_W,y),(50,50,50),1)
+        cv2.line(v2,(self.BEV_W//2,0),(self.BEV_W//2,self.BEV_H),CLR_REF,1)
         put_text(v2, "2: BEV", 0, (200,200,200))
 
         # ── Preprocessing ──
@@ -94,11 +114,11 @@ class VisualizerNode(Node):
 
         # ── VIEW 3: Threshold + histogram ──
         v3 = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-        hist = np.sum(binary[BEV_H//2:,:],axis=0).astype(np.float32)
+        hist = np.sum(binary[self.BEV_H//2:,:],axis=0).astype(np.float32)
         hist_norm = (hist/(hist.max()+1e-6)*50).astype(int)
         for x,h in enumerate(hist_norm):
-            cv2.line(v3,(x,BEV_H),(x,BEV_H-h),(0,180,255),1)
-        cv2.line(v3,(BEV_W//2,0),(BEV_W//2,BEV_H),CLR_REF,1)
+            cv2.line(v3,(x,self.BEV_H),(x,self.BEV_H-h),(0,180,255),1)
+        cv2.line(v3,(self.BEV_W//2,0),(self.BEV_W//2,self.BEV_H),CLR_REF,1)
         put_text(v3,"3: Threshold",0,(200,200,200))
 
         # ── VIEW 4: Lanes ──
@@ -119,26 +139,26 @@ class VisualizerNode(Node):
             pr = np.polyfit([p[1] for p in right_pts],
                             [p[0] for p in right_pts], 3)
             pc = (pl+pr)/2.0
-            yr = np.linspace(0,BEV_H,200)
+            yr = np.linspace(0,self.BEV_H,200)
             pts_l=[]; pts_r=[]; pts_c=[]
             for yv in yr:
                 xl=int(np.polyval(pl,yv)); xr=int(np.polyval(pr,yv))
                 xc=int(np.polyval(pc,yv))
-                if 0<=xl<BEV_W: pts_l.append((xl,int(yv)))
-                if 0<=xr<BEV_W: pts_r.append((xr,int(yv)))
-                if 0<=xc<BEV_W: pts_c.append((xc,int(yv)))
+                if 0<=xl<self.BEV_W: pts_l.append((xl,int(yv)))
+                if 0<=xr<self.BEV_W: pts_r.append((xr,int(yv)))
+                if 0<=xc<self.BEV_W: pts_c.append((xc,int(yv)))
             if len(pts_l)>1: cv2.polylines(v4,[np.array(pts_l)],False,CLR_LEFT,2)
             if len(pts_r)>1: cv2.polylines(v4,[np.array(pts_r)],False,CLR_RIGHT,2)
             if len(pts_c)>1: cv2.polylines(v4,[np.array(pts_c)],False,CLR_CENTER,2)
-            xc_bot = np.polyval(pc,BEV_H)
-            e_y   = float((xc_bot-BEV_W/2)*SCALE)
-            dxdy  = 3*pc[0]*BEV_H**2+2*pc[1]*BEV_H+pc[2]
-            e_psi = float(np.arctan(dxdy*SCALE))
-            kappa = float(2.0*pc[1]*SCALE**2)
-            cv2.arrowedLine(v4,(BEV_W//2,BEV_H-5),(int(xc_bot),BEV_H-5),
+            xc_bot = np.polyval(pc,self.BEV_H)
+            e_y   = float((xc_bot-self.BEV_W/2)*self.SCALE)
+            dxdy  = 3*pc[0]*self.BEV_H**2+2*pc[1]*self.BEV_H+pc[2]
+            e_psi = float(np.arctan(dxdy*self.SCALE))
+            kappa = float(2.0*pc[1]*self.SCALE**2)
+            cv2.arrowedLine(v4,(self.BEV_W//2,self.BEV_H-5),(int(xc_bot),self.BEV_H-5),
                             (0,255,128),2,tipLength=0.3)
 
-        cv2.line(v4,(BEV_W//2,0),(BEV_W//2,BEV_H),CLR_REF,1)
+        cv2.line(v4,(self.BEV_W//2,0),(self.BEV_W//2,self.BEV_H),CLR_REF,1)
         put_text(v4,"4: Lanes",0,(200,200,200))
         if e_y is not None:
             put_text(v4,f"e_y:  {e_y:+.4f}m",   1,CLR_TEXT)
@@ -184,23 +204,23 @@ class VisualizerNode(Node):
         self.pubG.publish(gm)
 
     def _sliding_window(self, binary):
-        hist    = np.sum(binary[BEV_H//2:,:],axis=0)
-        mid     = BEV_W//2
+        hist    = np.sum(binary[self.BEV_H//2:,:],axis=0)
+        mid     = self.BEV_W//2
         left_x  = int(np.argmax(hist[:mid]))
         right_x = int(np.argmax(hist[mid:]))+mid
-        win_h   = BEV_H//N_WINDOWS
+        win_h   = self.BEV_H//self.N_WIN
         left_pts,right_pts,boxes = [],[],[]
-        for w in range(N_WINDOWS):
-            yt=BEV_H-(w+1)*win_h; yb=BEV_H-w*win_h
-            xl1=max(left_x-WIN_W//2,0);   xl2=min(left_x+WIN_W//2,BEV_W)
-            xr1=max(right_x-WIN_W//2,0);  xr2=min(right_x+WIN_W//2,BEV_W)
+        for w in range(self.N_WIN):
+            yt=self.BEV_H-(w+1)*win_h; yb=self.BEV_H-w*win_h
+            xl1=max(left_x-self.WIN_W//2,0);   xl2=min(left_x+self.WIN_W//2,self.BEV_W)
+            xr1=max(right_x-self.WIN_W//2,0);  xr2=min(right_x+self.WIN_W//2,self.BEV_W)
             boxes.append((xl1,xl2,xr1,xr2,yt,yb))
             rl=binary[yt:yb,xl1:xl2]; rr=binary[yt:yb,xr1:xr2]
             pl=np.where(rl>0);        pr=np.where(rr>0)
-            if len(pl[1])>MIN_PIX:
+            if len(pl[1])>self.MIN_PIX:
                 left_x=int(np.mean(pl[1]))+xl1
                 left_pts.append((left_x,(yt+yb)//2))
-            if len(pr[1])>MIN_PIX:
+            if len(pr[1])>self.MIN_PIX:
                 right_x=int(np.mean(pr[1]))+xr1
                 right_pts.append((right_x,(yt+yb)//2))
         return left_pts,right_pts,boxes

@@ -182,6 +182,7 @@ class NMPCNode(Node):
         self.poly_b = 0.0
         self.poly_c = 0.0
         self.poly_d = 0.0
+        self.perc_s_max = 0.7  # camera lookahead [m]; update từ LaneState.s_max
 
         self._warm_start(self.x_est)
 
@@ -217,6 +218,9 @@ class NMPCNode(Node):
         self.poly_b = msg.coeff_b
         self.poly_c = msg.coeff_c
         self.poly_d = msg.coeff_d
+        # Lưu lookahead thực tế từ camera (dùng để clip kappa predict trong horizon)
+        if msg.s_max > 0.05:
+            self.perc_s_max = msg.s_max
 
         kappa_abs = abs(msg.kappa)
         self.v_ref_adaptive = float(np.clip(
@@ -233,7 +237,16 @@ class NMPCNode(Node):
             self.ekf_healthy = False
 
     def enabled_cb(self, msg: Bool):
+        prev = self.car_enabled
         self.car_enabled = msg.data
+        # Khi xe được start lại (False→True): reset velocity về giá trị thực tế
+        if not prev and self.car_enabled:
+            if self.ekf_healthy and self.ekf_v is not None:
+                self.x_est[3] = self.ekf_v
+            else:
+                self.x_est[3] = 0.0  # Xe đang đứng yên → khởi đầu v=0
+            self.x_est[0] = 0.0  # Reset progressive s về 0
+            self.get_logger().info('car_enabled: False→True, reset x_est về EKF/0')
 
     def control_cb(self):
         if not self.car_enabled:
@@ -258,8 +271,10 @@ class NMPCNode(Node):
         self.solver.set(0, 'ubx', self.x_est)
 
         dt_step = self.TF / self.N
+        s_max_cam = self.perc_s_max * 0.9  # 90% số thực để an toàn, tránh extrapolate
         for i in range(self.N):
-            s_pred = max(self.x_est[3], 0.1) * i * dt_step
+            # Clip s_pred trong phạm vi camera thấy: tránh cubic poly extrapolate vô tội vạ
+            s_pred = min(max(self.x_est[3], 0.1) * i * dt_step, s_max_cam)
             xp  = 3.0 * self.poly_a * s_pred**2 + 2.0 * self.poly_b * s_pred + self.poly_c
             xpp = 6.0 * self.poly_a * s_pred + 2.0 * self.poly_b
             kappa_pred = xpp / max((1.0 + xp**2)**1.5, 1e-6)
@@ -272,8 +287,8 @@ class NMPCNode(Node):
                 self.V_MIN_CURVE, self.V_MAX))
             self.solver.constraints_set(i, 'ubu', np.array([self.DELTA_MAX, v_ref_i]))
 
-        # Terminal node parameter
-        s_end = max(self.x_est[3], 0.1) * self.N * dt_step
+        # Terminal node parameter — clip tương tự
+        s_end = min(max(self.x_est[3], 0.1) * self.N * dt_step, s_max_cam)
         xp_end  = 3.0 * self.poly_a * s_end**2 + 2.0 * self.poly_b * s_end + self.poly_c
         xpp_end = 6.0 * self.poly_a * s_end + 2.0 * self.poly_b
         kappa_end = xpp_end / max((1.0 + xp_end**2)**1.5, 1e-6)

@@ -292,10 +292,10 @@ rm -rf build/lane_msgs install/lane_msgs
 bev_src: [172.0, 151.0, 471.0, 151.0, 609.0, 365.0, 29.0, 368.0]
 # SRC corners (pixel): TL, TR, BR, BL in camera image
 
-bev_dst: [50.0, 0.0, 250.0, 0.0, 250.0, 500.0, 50.0, 500.0]
-# DST corners (pixel): TL, TR, BR, BL in BEV image
+bev_dst: [100.0, 0.0, 300.0, 0.0, 300.0, 500.0, 100.0, 500.0]
+# DST corners (pixel): lane 200px căn giữa BEV 400px (100→300)
 
-bev_width: 300    # BEV output width [px]
+bev_width: 400    # Thu hẹp: lane 200px chiếm 50% → ít noise hơn
 bev_height: 500   # BEV output height [px]
 bev_scale: 0.0025 # m/px — lane 0.5m = 200px
 ```
@@ -304,14 +304,14 @@ bev_scale: 0.0025 # m/px — lane 0.5m = 200px
 
 ```yaml
 n_windows: 10     # number of windows
-win_width: 60     # window width [px]
-min_pixels: 20    # minimum pixels to recenter window
+win_width: 80     # window width [px] (giảm 140→80 tránh cất 2 lane một lúc)
+min_pixels: 15    # minimum pixels to recenter window (giảm 20→15 detect lane yếu)
 ```
 
 ### Arc-Length Parameters
 
 ```yaml
-s_max_m: 0.8      # maximum camera lookahead [m]
+s_max_m: 0.7      # camera lookahead [m] (giảm 1.0→0.7: 2.3× thân xe, ít kappa drift)
 n_arc: 200        # number of arc-length integration points
 thresh_block_size: 35
 thresh_c: 10
@@ -513,6 +513,10 @@ ign service -s /world/{world_name}/set_pose \
 - [x] Full pipeline launch file (`sim_full_launch.py`), reset_node chạy riêng terminal 2
 - [x] Visualizer: 4-panel debug grid
 - [x] Fix joint damping + body mass → tốc độ thực tế khớp v_cmd
+- [x] BEV width thu hẹp 700→400px (lane 50% BEV), win_width 140→80, s_max 1.0→0.7 → giảm kappa noise trên cua
+- [x] mpc_node: clip kappa predict trong horizon ≤ perc_s_max → tránh cubic poly extrapolate vô nghĩa
+- [x] mpc_node: reset x_est[3] về EKF/0 khi car_enabled False→True → bỏ jerk lúc start
+- [x] visualizer_node: đọc tất cả BEV params từ yaml (không còn hardcode)
 
 ### Phase 1.5 Checklist (Hardware Deploy)
 
