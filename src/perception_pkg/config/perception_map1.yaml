@@ -2,20 +2,20 @@ perception_node:
   ros__parameters:
     # BEV Homography — SIM values (recalibrate cho hardware thật)
     bev_src: [172.0, 151.0, 471.0, 151.0, 609.0, 365.0, 29.0, 368.0]
-    # DST: lane 200px (0.5m) căn giữa BEV 400px → left_edge=100, right_edge=300
     bev_dst: [100.0, 0.0, 300.0, 0.0, 300.0, 500.0, 100.0, 500.0]
-    bev_width: 400    # Thu hẹp: lane 200px chiếm 50% (trước 700px, 29%) → ít noise hơn
+    bev_width: 400
     bev_height: 500
     bev_scale: 0.0025  # m/px: lane 0.5m = 200px
 
-    # Sliding Window
+    # Sliding Window — Map 1/2/4 (oval / chicane)
+    # win_width=80: hẹp hơn DLC (100) → ít nhiễu trên cua oval
+    # min_pixels=15: thấp hơn DLC (20) → bắt được pixel ở cua hẹp
     n_windows: 10
-    win_width: 100    # tăng 80→100: tracking khoẻ hơn khi chuyển làn DLC
-    min_pixels: 20    # giảm false detect
-
+    win_width: 80
+    min_pixels: 15
 
     # Arc-length
-    s_max_m: 0.7      # Giảm 1.0→0.7: 0.7m = 2.3× thân xe, ít noise hơn khi cua xa
+    s_max_m: 0.7
     n_arc: 200
 
     # Adaptive Threshold

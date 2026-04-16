@@ -119,6 +119,15 @@ class NMPCNode(Node):
         self.declare_parameter('kappa_speed_factor', 8.0)
         self.declare_parameter('v_min_curve', 0.2)
         self.declare_parameter('ekf_timeout', 1.0)
+        self.declare_parameter('diagnostic_kappa_zero', False)
+        self.declare_parameter('kappa_max', 3.0)
+        self.declare_parameter('solver_build_dir', 'nmpc_build')
+        # kappa_smooth_alpha: trọng số cho GIÁ TRỊ CŨ trong EMA kappa
+        # Nhỏ = phản ứng nhanh (map 1 oval sạch)  |  Lớn = lọc nhiều (map 3 DLC ồn)
+        self.declare_parameter('kappa_smooth_alpha', 0.70)
+        # poly_ema_alpha: trọng số cho GIÁ TRỊ CŨ khi smooth polynomial coefficients
+        # Nhỏ = theo polynomial mới nhanh hơn  |  Lớn = ổn định hơn
+        self.declare_parameter('poly_ema_alpha', 0.50)
 
         # ── Load params ──
         self.LF    = self.get_parameter('lf').value
@@ -140,14 +149,19 @@ class NMPCNode(Node):
         self.V_MAX        = self.get_parameter('v_max').value
         self.V_MIN        = self.get_parameter('v_min').value
         self.N_MAX        = self.get_parameter('n_max').value
-        self.KAPPA_FACTOR = self.get_parameter('kappa_speed_factor').value
-        self.V_MIN_CURVE  = self.get_parameter('v_min_curve').value
-        self.EKF_TIMEOUT  = self.get_parameter('ekf_timeout').value
+        self.KAPPA_FACTOR      = self.get_parameter('kappa_speed_factor').value
+        self.V_MIN_CURVE       = self.get_parameter('v_min_curve').value
+        self.EKF_TIMEOUT       = self.get_parameter('ekf_timeout').value
+        self.DIAG_KAPPA_ZERO      = self.get_parameter('diagnostic_kappa_zero').value
+        self.KAPPA_MAX            = self.get_parameter('kappa_max').value
+        solver_build_dir          = self.get_parameter('solver_build_dir').value
+        self.KAPPA_SMOOTH_ALPHA   = self.get_parameter('kappa_smooth_alpha').value
+        self.POLY_EMA_ALPHA       = self.get_parameter('poly_ema_alpha').value
 
         # ── Build solver ──
         ws = os.path.expanduser(
             '~/main/1_projects/1_autonomous_car_research/ros2_ws')
-        build_dir = os.path.join(ws, 'nmpc_build')
+        build_dir = os.path.join(ws, solver_build_dir)
 
         self.get_logger().info(
             f'Building NMPC solver | V_MAX={self.V_MAX} N={self.N} Tf={self.TF}s ...')
@@ -211,16 +225,20 @@ class NMPCNode(Node):
             return
         self.perc_n     = msg.e_y
         self.perc_alpha = msg.e_psi
-        self.kappa      = msg.kappa   # raw kappa cho horizon polynomial predict
-        # Smooth kappa cho v_ref_adaptive: tránh speed fluctuation do noise
-        self.kappa_smooth = 0.70 * self.kappa_smooth + 0.30 * msg.kappa
+        self.kappa        = msg.kappa   # raw kappa cho horizon polynomial predict
+        # EMA kappa: alpha_old = KAPPA_SMOOTH_ALPHA (per-map)
+        _ks = self.KAPPA_SMOOTH_ALPHA
+        self.kappa_smooth = _ks * self.kappa_smooth + (1.0 - _ks) * msg.kappa
+
         self.lane_ok   = True
         self.last_lane_time = self.get_clock().now()
-        
-        self.poly_a = msg.coeff_a
-        self.poly_b = msg.coeff_b
-        self.poly_c = msg.coeff_c
-        self.poly_d = msg.coeff_d
+
+        # EMA polynomial coefficients: alpha_old = POLY_EMA_ALPHA (per-map)
+        _p = self.POLY_EMA_ALPHA
+        self.poly_a = _p * self.poly_a + (1.0 - _p) * msg.coeff_a
+        self.poly_b = _p * self.poly_b + (1.0 - _p) * msg.coeff_b
+        self.poly_c = _p * self.poly_c + (1.0 - _p) * msg.coeff_c
+        self.poly_d = _p * self.poly_d + (1.0 - _p) * msg.coeff_d
         # Lưu lookahead thực tế từ camera (dùng để clip kappa predict trong horizon)
         if msg.s_max > 0.05:
             self.perc_s_max = msg.s_max
@@ -277,25 +295,35 @@ class NMPCNode(Node):
         dt_step = self.TF / self.N
         s_max_cam = self.perc_s_max * 0.9  # 90% số thực để an toàn, tránh extrapolate
         for i in range(self.N):
-            # Clip s_pred trong phạm vi camera thấy: tránh cubic poly extrapolate vô tội vạ
-            s_pred = min(max(self.x_est[3], 0.1) * i * dt_step, s_max_cam)
-            xp  = 3.0 * self.poly_a * s_pred**2 + 2.0 * self.poly_b * s_pred + self.poly_c
-            xpp = 6.0 * self.poly_a * s_pred + 2.0 * self.poly_b
-            kappa_pred = xpp / max((1.0 + xp**2)**1.5, 1e-6)
-            
+            if self.DIAG_KAPPA_ZERO:
+                kappa_pred = 0.0
+            else:
+                # Clip s_pred trong phạm vi camera thấy: tránh cubic poly extrapolate vô tội vạ
+                s_pred = min(max(self.x_est[3], 0.1) * i * dt_step, s_max_cam)
+                xp  = 3.0 * self.poly_a * s_pred**2 + 2.0 * self.poly_b * s_pred + self.poly_c
+                xpp = 6.0 * self.poly_a * s_pred + 2.0 * self.poly_b
+                kappa_pred = xpp / max((1.0 + xp**2)**1.5, 1e-6)
+                # Clamp theo giới hạn vật lý — spike kappa_pred → denom singularity → xe văng
+                kappa_pred = float(np.clip(kappa_pred, -self.KAPPA_MAX, self.KAPPA_MAX))
+
             self.solver.set(i, 'p', np.array([kappa_pred]))
-            
+
             # Dynamic predictive braking bound
             v_ref_i = float(np.clip(
                 self.V_MAX / (1.0 + self.KAPPA_FACTOR * abs(kappa_pred)),
                 self.V_MIN_CURVE, self.V_MAX))
             self.solver.constraints_set(i, 'ubu', np.array([self.DELTA_MAX, v_ref_i]))
 
-        # Terminal node parameter — clip tương tự
-        s_end = min(max(self.x_est[3], 0.1) * self.N * dt_step, s_max_cam)
-        xp_end  = 3.0 * self.poly_a * s_end**2 + 2.0 * self.poly_b * s_end + self.poly_c
-        xpp_end = 6.0 * self.poly_a * s_end + 2.0 * self.poly_b
-        kappa_end = xpp_end / max((1.0 + xp_end**2)**1.5, 1e-6)
+        # Terminal node parameter
+        if self.DIAG_KAPPA_ZERO:
+            kappa_end = 0.0
+        else:
+            s_end = min(max(self.x_est[3], 0.1) * self.N * dt_step, s_max_cam)
+            xp_end  = 3.0 * self.poly_a * s_end**2 + 2.0 * self.poly_b * s_end + self.poly_c
+            xpp_end = 6.0 * self.poly_a * s_end + 2.0 * self.poly_b
+            kappa_end = float(np.clip(
+                xpp_end / max((1.0 + xp_end**2)**1.5, 1e-6),
+                -self.KAPPA_MAX, self.KAPPA_MAX))
         self.solver.set(self.N, 'p', np.array([kappa_end]))
 
         t0     = time.time()
@@ -316,7 +344,7 @@ class NMPCNode(Node):
 
         dt     = 1.0 / self.CTRL_HZ
         beta   = (self.LR / self.L) * delta_cmd
-        kc     = self.kappa
+        kc     = 0.0 if self.DIAG_KAPPA_ZERO else self.kappa
         n_     = self.x_est[1]
         alpha_ = self.x_est[2]
         v_     = self.x_est[3]
@@ -333,7 +361,8 @@ class NMPCNode(Node):
         self._publish(delta_cmd, v_cmd)
 
         if int(time.time() * 5) % 5 == 0:
-            v_src = 'EKF' if (self.ekf_healthy and self.ekf_v is not None) else 'model'
+            v_src  = 'EKF' if (self.ekf_healthy and self.ekf_v is not None) else 'model'
+            kd_str = '[DIAG:κ=0]' if self.DIAG_KAPPA_ZERO else ''
             self.get_logger().info(
                 f'n={self.x_est[1]*1000:.1f}mm '
                 f'α={np.degrees(self.x_est[2]):.2f}° '
@@ -341,7 +370,7 @@ class NMPCNode(Node):
                 f'δ={np.degrees(delta_cmd):.2f}° '
                 f'κ={self.kappa_smooth:.3f}(s={self.kappa:.3f}) '
                 f'v_cmd={v_cmd:.2f} '
-                f't={t_ms:.1f}ms')
+                f't={t_ms:.1f}ms{kd_str}')
 
     def _warm_start(self, x0):
         for i in range(self.N + 1):

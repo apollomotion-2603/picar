@@ -16,8 +16,18 @@ def fit_cubic_arclength(pts_px, bev_w, bev_h, scale, s_max_m, n_arc):
     xs_m = xs_m[order]
     if len(us_m) < 4:
         return None
-    coeff_u = np.polyfit(us_m, xs_m, 3)
-    u_dense = np.linspace(0.0, min(float(us_m[-1]), s_max_m), n_arc)
+
+    # FIX: Chỉ dùng điểm trong s_max_m — điểm xa bị sliding window drift gây bowing
+    within = us_m <= s_max_m
+    us_fit = us_m[within] if np.sum(within) >= 4 else us_m
+    xs_fit = xs_m[within] if np.sum(within) >= 4 else xs_m
+
+    # Near-field exponential weighting: điểm gần xe tin cậy hơn điểm xa
+    half = max(float(us_fit[-1]) * 0.5, 0.05)
+    w_u = np.exp(-us_fit / half)
+    coeff_u = np.polyfit(us_fit, xs_fit, 3, w=w_u)
+
+    u_dense = np.linspace(0.0, min(float(us_fit[-1]), s_max_m), n_arc)
     dxdu = np.polyval(np.polyder(coeff_u), u_dense)
     ds_du = np.sqrt(1.0 + dxdu ** 2)
     s_dense = np.concatenate(([0.0],
@@ -26,8 +36,19 @@ def fit_cubic_arclength(pts_px, bev_w, bev_h, scale, s_max_m, n_arc):
     s_max = float(s_dense[-1])
     if s_max < 0.05:
         return None
-    coeff_s = np.polyfit(s_dense, xc_dense, 3)
-    return float(coeff_s[0]), float(coeff_s[1]), float(coeff_s[2]), float(coeff_s[3]), s_max
+
+    # Cubic fit (weighted) cho e_y, e_psi, coeff tracking
+    half_s = max(s_max * 0.5, 0.05)
+    w_s = np.exp(-s_dense / half_s)
+    coeff_s = np.polyfit(s_dense, xc_dense, 3, w=w_s)
+
+    # Quadratic fit cho kappa: bậc 2 ít overfit hơn cubic → kappa mượt hơn
+    coeff_q = np.polyfit(s_dense, xc_dense, 2, w=w_s)
+    b_q = float(coeff_q[0])
+    c_q = float(coeff_q[1])
+    kappa = float((2.0 * b_q) / (1.0 + c_q ** 2) ** 1.5)
+
+    return float(coeff_s[0]), float(coeff_s[1]), float(coeff_s[2]), float(coeff_s[3]), s_max, kappa
 
 
 class PerceptionNode(Node):
@@ -133,14 +154,13 @@ class PerceptionNode(Node):
                 self.SCALE, self.S_MAX, self.N_ARC)
 
             if result is not None:
-                a, b, c, d, s_max = result
+                a, b, c, d, s_max, kappa = result
                 e_y   = float(d) + e_y_offset
                 e_psi = float(np.arctan(c))
-                kappa = float((2.0 * b) / (1.0 + c ** 2) ** 1.5)
 
                 lane_msg.e_y           = e_y
                 lane_msg.e_psi         = e_psi
-                lane_msg.kappa         = kappa
+                lane_msg.kappa         = kappa   # từ quadratic fit (mượt hơn cubic)
                 lane_msg.coeff_a       = a
                 lane_msg.coeff_b       = b
                 lane_msg.coeff_c       = c

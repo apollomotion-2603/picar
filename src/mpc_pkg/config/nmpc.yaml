@@ -14,11 +14,17 @@ nmpc_node:
     # Cost weights
     w_n: 200.0
     w_alpha: 100.0
-    w_delta: 80.0      # Tăng 50→80: suppress steering oscillation trên đường thẳng DLC
+    w_delta: 80.0           # tăng 50→80 để suppress DLC oscillation (rm -rf nmpc_build/ khi đổi)
     w_v: 0.5
     w_s_e: 50.0
     w_n_e: 2000.0
     w_a_e: 5000.0
+
+    # Kappa safety
+    kappa_max: 2.0                 # clamp kappa_pred trong horizon (1/m) — spike > 3 là noise
+
+    # Diagnostic
+    diagnostic_kappa_zero: false   # true = bypass kappa từ perception (test Option A)
 
     # Constraints
     delta_max: 0.6109
@@ -30,3 +36,12 @@ nmpc_node:
 
     # EKF
     ekf_timeout: 1.0
+
+    # Solver cache — riêng cho map 3 DLC (w_delta=80 baked vào solver)
+    solver_build_dir: nmpc_build_map3
+
+    # EMA tuning — Map 3 DLC: kappa nhiễu → lọc nhiều hơn
+    # kappa_smooth_alpha lớn = 30% new weight → tránh spike kappa gây brake erratic
+    kappa_smooth_alpha: 0.70
+    # poly_ema_alpha lớn = polynomial ổn định hơn → ít spike kappa_pred trong horizon
+    poly_ema_alpha: 0.50

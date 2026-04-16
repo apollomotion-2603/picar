@@ -304,8 +304,8 @@ bev_scale: 0.0025 # m/px — lane 0.5m = 200px
 
 ```yaml
 n_windows: 10     # number of windows
-win_width: 80     # window width [px] (giảm 140→80 tránh cất 2 lane một lúc)
-min_pixels: 15    # minimum pixels to recenter window (giảm 20→15 detect lane yếu)
+win_width: 100    # window width [px] (tăng 80→100 giúp tracking khoẻ hơn khi chuyển làn DLC)
+min_pixels: 20    # minimum pixels to recenter window (giảm false detect)
 ```
 
 ### Arc-Length Parameters
@@ -378,7 +378,9 @@ L_e(x) = -w_s_e * s  +  w_n_e * n²  +  w_a_e * alpha²
 |--------|-------|-------------|
 | w_n | 200.0 | Lateral offset penalty |
 | w_alpha | 100.0 | Heading error penalty |
-| w_delta | **50.0** | Steering magnitude penalty (tăng từ 10 → 50 để giảm dao động) |
+| w_delta | **80.0** | Steering magnitude penalty (tăng 50→80 để suppress DLC oscillation; `rm -rf nmpc_build/`) |
+| kappa_max | **3.0** | Clamp kappa_pred trong horizon (1/m) — spike > 3 là noise, ngăn singularity |
+| diagnostic_kappa_zero | **false** | Debug flag: true = bypass kappa từ perception (test isolate MPC vs perception) |
 | w_v | 0.5 | Velocity tracking penalty |
 | w_s_e | 50.0 | Progress reward (terminal) |
 | w_n_e | 2000.0 | Lateral offset penalty (terminal) |
@@ -513,10 +515,22 @@ ign service -s /world/{world_name}/set_pose \
 - [x] Full pipeline launch file (`sim_full_launch.py`), reset_node chạy riêng terminal 2
 - [x] Visualizer: 4-panel debug grid
 - [x] Fix joint damping + body mass → tốc độ thực tế khớp v_cmd
-- [x] BEV width thu hẹp 700→400px (lane 50% BEV), win_width 140→80, s_max 1.0→0.7 → giảm kappa noise trên cua
+- [x] BEV width thu hẹp 700→400px (lane 50% BEV), win_width 100, min_pixels 20
 - [x] mpc_node: clip kappa predict trong horizon ≤ perc_s_max → tránh cubic poly extrapolate vô nghĩa
 - [x] mpc_node: reset x_est[3] về EKF/0 khi car_enabled False→True → bỏ jerk lúc start
 - [x] visualizer_node: đọc tất cả BEV params từ yaml (không còn hardcode)
+- [x] visualizer_node: overlay LANE_STATE thật (e_y, e_psi, kappa) từ MPC lên GUI (xanh lá)
+- [x] ekf_node + mpc_node: Thêm EMA Kappa đúng tỉ lệ (0.7 old + 0.3 new) — đã fix lại từ 0.2/0.8 sai
+- [x] ekf_node: Thêm EMA kappa trước khi dùng trong EKF predict alpha_dot (tránh noise → EKF diverge)
+- [x] reset_node: Fix auto-stop timer, dùng N_MAX_STOP=0.22 để tránh false trigger trong DLC
+- [x] **w_delta tăng 50 → 80** để suppress DLC oscillation (`rm -rf nmpc_build/` cần thiết)
+- [x] **kappa_max=3.0**: clamp kappa_pred trong horizon — ngăn spike → singularity `1-n*kappa_c`
+- [x] **diagnostic_kappa_zero flag** trong nmpc.yaml: bypass kappa từ perception để isolate bug
+- [x] **Polynomial bowing fix** (perception_node.py `fit_cubic_arclength`):
+  - Clip `us_m ≤ s_max_m` trước polyfit — loại bỏ điểm xa bị sliding window drift
+  - Near-field exponential weighting `exp(-s/half)` cho cả 2 lần polyfit
+  - **kappa từ quadratic fit (bậc 2)** thay vì cubic — ít overfit, không còn gây xe văng
+  - coeff_a,b,c,d vẫn từ cubic (dùng cho MPC horizon tracking)
 
 ### Phase 1.5 Checklist (Hardware Deploy)
 
@@ -563,7 +577,9 @@ ign service -s /world/{world_name}/set_pose \
 | NMPC warning `Gauss-Newton + EXTERNAL` | acados normal behavior | Safe to ignore |
 | `reset_node` teleport code=255 "Invalid arguments" | Dùng `gz service` của Gazebo Classic thay vì `ign service` của Ignition Fortress | Fixed: dùng `ign service --reqtype ignition.msgs.Pose` |
 | `reset_node` Q reset không teleport xe về vị trí ban đầu | (1) Protobuf format thiếu `:` trước nested message (`position { }` thay vì `position: {}`) — Fortress parser không chấp nhận; (2) Không có delay trước teleport → physics velocity còn → xe drift ngay sau teleport | Fixed: khôi phục format `position: {x:... y:... z:...}` + thêm delay 0.5s (5×0.1s publish stop) trước khi gọi `ign service` |
-| Xe dao động lái trái-phải trên đường thẳng | raw perception `e_y`/`e_psi` inject trực tiếp vào NMPC initial state | Fixed: dùng EKF-filtered `n`/`alpha`; tăng `w_delta` 10→50 (`rm -rf nmpc_build/` cần thiết) |
+| Xe dao động lái trái-phải trên đường thẳng | raw perception `e_y`/`e_psi` inject trực tiếp vào NMPC initial state | Fixed: dùng EKF-filtered `n`/`alpha`; tăng `w_delta` 10→50→80 (`rm -rf nmpc_build/` cần thiết) |
+| Xe văng khi vào cua DLC (map 3) | `fit_cubic_arclength` dùng toàn bộ sliding window points kể cả điểm ngoài `s_max_m` → far-field drift → polynomial bowing → kappa spike → `1-n*kappa_c` singularity trong MPC model | Fixed: clip `us_m ≤ s_max_m`, near-field exponential weighting, kappa từ quadratic fit, `kappa_max=3.0` clamp |
+| Polynomial lines bowing outward (chữ V) trong LANES panel | Sliding window drift outward ở upper BEV windows (unreliable) kéo lệch cubic polynomial | Partially fixed: near-field weighting giảm impact; root cause vẫn là sliding window algorithm — acceptable cho sim, cần monitor trên hardware |
 | `libEGL warning: egl: failed to create dri2 screen` | GPU driver | Safe to ignore |
 
 ### Hardware-Specific Notes

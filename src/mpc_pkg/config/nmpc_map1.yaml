@@ -1,0 +1,48 @@
+nmpc_node:
+  ros__parameters:
+    # Vehicle params
+    lf: 0.11
+    lr: 0.11
+    tau_v: 0.1
+
+    # Solver
+    N: 30
+    Tf: 1.0
+    ctrl_hz: 30
+    timeout: 1.0
+
+    # Cost weights — Map 1/2/4 (oval / chicane)
+    # w_delta=50: mềm hơn DLC (80) → lái mượt hơn trên oval
+    w_n: 200.0
+    w_alpha: 100.0
+    w_delta: 50.0
+    w_v: 0.5
+    w_s_e: 50.0
+    w_n_e: 2000.0
+    w_a_e: 5000.0
+
+    # Kappa safety
+    kappa_max: 2.0
+
+    # Diagnostic
+    diagnostic_kappa_zero: false
+
+    # Constraints
+    delta_max: 0.6109
+    v_max: 1.5
+    v_min: 0.0
+    n_max: 0.20
+    kappa_speed_factor: 8.0
+    v_min_curve: 0.25
+
+    # EKF
+    ekf_timeout: 1.0
+
+    # Solver cache — riêng cho map 1/2/4 (w_delta=50 baked vào solver)
+    solver_build_dir: nmpc_build_map1
+
+    # EMA tuning — Map 1/2/4: kappa sạch → phản ứng nhanh hơn
+    # kappa_smooth_alpha nhỏ = 70% new weight → v_ref_adaptive giảm sớm trước cua
+    kappa_smooth_alpha: 0.30
+    # poly_ema_alpha nhỏ = theo polynomial mới nhanh hơn → e_psi ít lag hơn
+    poly_ema_alpha: 0.30

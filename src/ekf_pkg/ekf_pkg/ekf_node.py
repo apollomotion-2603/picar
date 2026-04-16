@@ -26,8 +26,8 @@ LF = 0.11
 LR = 0.11
 L  = 0.22
 
-KAPPA_EMA   = 0.70    # EMA smoothing cho kappa: 0.7*old + 0.3*new
-                      # Giảm kappa noise từ perception → EKF alpha ổn định hơn khi cua
+# ─────────────────────────────────────────
+
 
 # ─────────────────────────────────────────
 #  EKF
@@ -50,6 +50,8 @@ class RCCarEKF:
 
         # R full: [n, alpha, v]
         self.R_full = np.diag([(0.01)**2, (0.02)**2, (0.02)**2])
+
+
 
         self.H_cam = np.array([
             [1, 0, 0, 0, 0, 0],
@@ -124,7 +126,7 @@ class EKFNode(Node):
 
         self.ekf   = RCCarEKF()
         self.kappa = 0.0
-        self._kappa_raw = 0.0  # raw kappa trước EMA
+
 
         # IMU state
         self.ax       = 0.0
@@ -164,9 +166,9 @@ class EKFNode(Node):
         if not msg.lane_detected:
             return
 
-        # Smooth kappa qua EMA trước khi inject vào EKF predict
-        self._kappa_raw = msg.kappa
-        self.kappa = KAPPA_EMA * self.kappa + (1.0 - KAPPA_EMA) * self._kappa_raw
+        # EMA kappa: 0.7 old + 0.3 new — chống noise ảnh hưởng EKF predict alpha_dot
+        self.kappa = 0.70 * self.kappa + 0.30 * msg.kappa
+
 
         # Update EKF với camera measurement
         if self.v_wheel is not None:

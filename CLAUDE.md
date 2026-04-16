@@ -103,7 +103,8 @@ Joint States ──→    ↑                    ↓
 | N (horizon) | 30 steps | Tf=1.0s, dt=33ms |
 | w_n (lateral) | 200.0 | Penalize lane offset |
 | w_alpha (heading) | 100.0 | Penalize heading error |
-| w_delta (steering) | 50.0 | Penalize steering magnitude (tăng từ 10 để giảm dao động) |
+| w_delta (steering) | **80.0** | Penalize steering magnitude (10→50→80, suppress DLC oscillation; `rm -rf nmpc_build/`) |
+| kappa_max | 3.0 | Clamp kappa_pred trong horizon — ngăn singularity khi perception noise |
 | kappa_factor | 8.0 | Speed reduction tại cua |
 | Solve time | 1–5ms | Margin 28ms so với 33ms period ✅ |
 
@@ -112,9 +113,13 @@ Joint States ──→    ↑                    ↓
 - [x] `body_density` giảm từ 7850 (thép) → 925 (ABS plastic) → mass ≈ 2.5 kg đúng
 - [x] Rear wheel mass fix: từ hardcode 2kg → dùng density formula (~0.09 kg/wheel)
 - [x] mpc_node: dùng EKF `n`/`alpha` (filtered) thay raw perception cho NMPC initial state → giảm dao động lái
-- [x] `w_delta` tăng 10 → 50 → giảm aggressiveness (cần `rm -rf nmpc_build/` để rebuild solver)
+- [x] `w_delta` tăng 10 → 50 → 80 (DLC oscillation suppression; cần `rm -rf nmpc_build/`)
 - [x] reset_node: fix teleport dùng `ign service` + `ignition.msgs.Pose`
 - [x] reset_node: fix Q reset — protobuf format `position: {x:...}` (có `:`) + delay 0.5s trước teleport để physics settle
+- [x] **Kappa EMA đúng**: `0.7*old + 0.3*new` trong cả `ekf_node` lẫn `mpc_node` (fix lại từ 0.2/0.8 sai)
+- [x] **Polynomial bowing fix**: clip `us_m ≤ s_max_m`, near-field exponential weighting, kappa từ quadratic fit
+- [x] **kappa_max=3.0**: clamp kappa_pred trong MPC horizon — ngăn singularity khi perception spike
+- [x] **diagnostic_kappa_zero**: flag trong nmpc.yaml để bypass kappa từ perception khi debug
 
 ---
 

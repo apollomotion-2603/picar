@@ -15,10 +15,26 @@ from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 
 MAP_CONFIGS = {
-    "1": {"world": "lane_track.sdf", "x": "0.0",  "y": "1.0",    "Y": "0.0"},
-    "2": {"world": "track_test.sdf", "x": "0.0",  "y": "-2.666", "Y": "0.0"},
-    "3": {"world": "lane_change.sdf", "x": "0.54",  "y": "0.75",    "Y": "0.0"},
-    "4": {"world": "obstacle_track.sdf", "x": "1.5", "y": "1.0", "Y": "0.0"},
+    "1": {"world": "lane_track.sdf",      "x": "0.0",  "y": "1.0",    "Y": "0.0"},
+    "2": {"world": "track_test.sdf",      "x": "0.0",  "y": "-2.666", "Y": "0.0"},
+    "3": {"world": "lane_change.sdf",     "x": "0.54", "y": "0.75",   "Y": "0.0"},
+    "4": {"world": "obstacle_track.sdf",  "x": "1.5",  "y": "1.0",    "Y": "0.0"},
+}
+
+# Per-map yaml: chọn bộ thông số phù hợp với từng map
+# Map 1/2/4 (oval/chicane): win_width=80, min_pixels=15, w_delta=50
+# Map 3 (DLC):              win_width=100, min_pixels=20, w_delta=80
+PERC_YAML_MAP = {
+    "1": "perception_map1.yaml",
+    "2": "perception_map1.yaml",   # chicane — tương tự oval
+    "3": "perception.yaml",        # DLC
+    "4": "perception_map1.yaml",   # obstacle — base trên map 1
+}
+NMPC_YAML_MAP = {
+    "1": "nmpc_map1.yaml",
+    "2": "nmpc_map1.yaml",
+    "3": "nmpc.yaml",
+    "4": "nmpc_map1.yaml",
 }
 
 def load_robot_description(xacro_path, params_path):
@@ -45,8 +61,10 @@ def generate_launch_description():
     xacro_path  = os.path.join(pkg, "model",  "vehicle.xacro")
     params_path = os.path.join(pkg, "config", "parameters.yaml")
     bridge_path = os.path.join(pkg, "config", "ros_gz_bridge.yaml")
-    perc_yaml   = os.path.join(ws,  "src/perception_pkg/config/perception.yaml")
-    nmpc_yaml   = os.path.join(ws,  "src/mpc_pkg/config/nmpc.yaml")
+    perc_yaml   = os.path.join(ws,  "src/perception_pkg/config",
+                                PERC_YAML_MAP[map_id_val])
+    nmpc_yaml   = os.path.join(ws,  "src/mpc_pkg/config",
+                                NMPC_YAML_MAP[map_id_val])
 
     robot_desc = load_robot_description(xacro_path, params_path)
 
