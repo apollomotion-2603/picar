@@ -1,12 +1,12 @@
 # PROJECT STATE — RC Car Autonomous Driving
-# apollomotion (Phi) | ĐH Giao thông Vận tải TP.HCM | Updated: 2026-04-08
+# apollomotion (Phi) | ĐH Giao thông Vận tải TP.HCM | Updated: 2026-04-16
 
 ---
 
 ## 1. PROJECT OVERVIEW
 
-**Mô tả:** Xe RC tự hành 1/16 scale làm luận văn tốt nghiệp. Stack: ROS2 Jazzy +
-Gazebo Harmonic + acados NMPC. Pipeline: camera → lane detection → EKF → NMPC → servo/ESC.
+**Mô tả:** Xe RC tự hành 1/16 scale làm luận văn tốt nghiệp. Stack: ROS2 Humble +
+Ignition Gazebo 6 (Fortress) + acados NMPC. Pipeline: camera → lane detection → EKF → NMPC → servo/ESC.
 
 **Phân công:**
 - **Phi (apollomotion):** Perception, EKF, SLAM, Nav2, GUI, luận văn
@@ -23,15 +23,15 @@ Gazebo Harmonic + acados NMPC. Pipeline: camera → lane detection → EKF → N
 | body (L×W×H)  | 0.30×0.18×0.05 m |                   |
 | max_steering  | 0.6109 rad | ≈ 35°                   |
 | lane_width    | 0.50 m     |                         |
-| V_max (sim)   | 2.0 m/s    | hardware phase: 0.3 m/s |
+| V_max (sim)   | 1.5 m/s    | hardware phase: 0.3 m/s |
 
 ### Software Stack
 
 | Component       | Version / Details                                  |
 |-----------------|----------------------------------------------------|
-| OS              | Ubuntu 24.04 (laptop), RPi OS 64-bit (Pi)          |
-| ROS2            | Jazzy (native on laptop, Docker on Pi)             |
-| Gazebo          | Harmonic v8.10                                     |
+| OS              | Ubuntu 22.04 (laptop), RPi OS 64-bit (Pi)          |
+| ROS2            | Humble (native on laptop, Docker on Pi)            |
+| Gazebo          | Ignition Gazebo 6 / Fortress (`ign` CLI)           |
 | acados          | v0.3.5 at `~/acados/`                              |
 | tera_renderer   | v0.2.0 (built from source Rust)                    |
 | ACADOS_SOURCE_DIR | `~/acados` (set in mpc_node.py line 17)          |
@@ -41,7 +41,7 @@ Gazebo Harmonic + acados NMPC. Pipeline: camera → lane detection → EKF → N
 ### Workspace
 
 ```
-~/main/1_project/1_autonomous_driving/ros2_ws/
+~/main/1_projects/1_autonomous_car_research/ros2_ws/
 ```
 
 ---
@@ -158,20 +158,22 @@ bool ekf_healthy
 
 ```bash
 export ROS_DOMAIN_ID=42
-source ~/main/1_project/1_autonomous_driving/ros2_ws/install/setup.bash
+source ~/main/1_projects/1_autonomous_car_research/ros2_ws/install/setup.bash
 
-# Map 1 — Oval track (lane_track.sdf), spawn x=1.5 y=1.0
+# Terminal 1 — Full sim (Map 1 mặc định)
 ros2 launch gazebo_ackermann_steering_vehicle sim_full_launch.py
+# Hoặc map khác: map:=2 / map:=3 / map:=4
 
-# Map 2 — Complex track (track_test.sdf), spawn x=0.0 y=-2.666
-ros2 launch gazebo_ackermann_steering_vehicle sim_full_launch.py map:=2
+# Terminal 2 — Reset node (chạy riêng để có TTY keyboard)
+ros2 run ekf_pkg reset_node --ros-args -p map_id:=1
+# s=START  x=STOP  q=RESET (teleport về spawn)
 ```
 
-**Startup sequence (from `sim_full_launch.py`):**
+**Startup sequence (từ `sim_full_launch.py`):**
 
 | Delay | Action |
 |-------|--------|
-| 0s | Gazebo + spawn + robot_state_publisher + gz_bridge + vehicle_controller |
+| 0s | Ignition Gazebo + spawn + robot_state_publisher + ros_gz_bridge + vehicle_controller |
 | After spawn exits | joint_state_broadcaster activated |
 | After joint_state_broadcaster | forward_velocity_controller + forward_position_controller activated |
 | +5s | `perception_node` starts |
@@ -179,7 +181,7 @@ ros2 launch gazebo_ackermann_steering_vehicle sim_full_launch.py map:=2
 | +6.5s | `visualizer_node` starts |
 | +7s | `mpc_node` starts (builds solver ~5s on first run) |
 | +7.5s | `grid_viewer` starts |
-| +8s | `reset_node` starts |
+| **reset_node KHÔNG còn trong launch** — chạy riêng terminal 2 |
 
 ### Individual Nodes (manual multi-terminal)
 
@@ -224,7 +226,7 @@ rqt_image_view /perception/debug_grid
 ### Build Commands
 
 ```bash
-cd ~/main/1_project/1_autonomous_driving/ros2_ws
+cd ~/main/1_projects/1_autonomous_car_research/ros2_ws
 
 # Build tất cả
 colcon build --symlink-install
@@ -376,10 +378,10 @@ L_e(x) = -w_s_e * s  +  w_n_e * n²  +  w_a_e * alpha²
 |--------|-------|-------------|
 | w_n | 200.0 | Lateral offset penalty |
 | w_alpha | 100.0 | Heading error penalty |
-| w_delta | 10.0 | Steering rate/magnitude penalty |
-| w_v | 10.0 | Velocity tracking penalty |
-| w_s_e | 1.0 | Progress reward (terminal) |
-| w_n_e | 8000.0 | Lateral offset penalty (terminal) |
+| w_delta | **50.0** | Steering magnitude penalty (tăng từ 10 → 50 để giảm dao động) |
+| w_v | 0.5 | Velocity tracking penalty |
+| w_s_e | 50.0 | Progress reward (terminal) |
+| w_n_e | 2000.0 | Lateral offset penalty (terminal) |
 | w_a_e | 5000.0 | Heading error penalty (terminal) |
 
 ### Constraints
@@ -396,12 +398,21 @@ L_e(x) = -w_s_e * s  +  w_n_e * n²  +  w_a_e * alpha²
 
 ```python
 v_ref_adaptive = V_MAX / (1.0 + kappa_speed_factor * abs(kappa))
-v_ref_adaptive = clip(v_ref_adaptive, v_min_curve=0.2, V_MAX=2.0)
+v_ref_adaptive = clip(v_ref_adaptive, v_min_curve=0.25, V_MAX=1.5)
 ```
 
 ### Velocity Source Logic
 
 ```python
+# n, alpha: dùng EKF nếu healthy (filtered), fallback sang raw perception
+if ekf_healthy and ekf_n is not None:
+    x_est[1] = clip(ekf_n,     -N_MAX,     N_MAX)
+    x_est[2] = clip(ekf_alpha, -DELTA_MAX, DELTA_MAX)
+else:
+    x_est[1] = perc_n
+    x_est[2] = perc_alpha
+
+# v: EKF hoặc first-order model
 if ekf_healthy and ekf_v is not None:
     x_est[3] = clip(ekf_v, V_MIN, V_MAX)       # use EKF feedback
 else:
@@ -455,11 +466,16 @@ Chuẩn bị cho Phase 3: Obstacle Avoidance.
 ### Reset Teleport Command (internal)
 
 ```bash
-gz service -s /world/{world_name}/set_pose \
-  --reqtype gz.msgs.Pose \
-  --reptype gz.msgs.Boolean \
-  --timeout 1000 \
-  --req 'name: "ackermann_steering_vehicle", position: {x:X, y:Y, z:0.15}, orientation: {x:0,y:0,z:QZ,w:QW}'
+# ĐÚNG — Ignition Gazebo 6 (Fortress): dùng ign, không phải gz
+ign service -s /world/{world_name}/set_pose \
+  --reqtype ignition.msgs.Pose \
+  --reptype ignition.msgs.Boolean \
+  --timeout 2000 \
+  --req 'name: "ackermann_steering_vehicle" position: {x: X y: Y z: 0.05} orientation: {x: 0 y: 0 z: QZ w: QW}'
+# Lưu ý protobuf text format cho Ignition Fortress:
+#   - PHẢI có dấu ":" trước nested message: position: {x: ...}  ← ĐÚNG
+#   - KHÔNG dùng format mới: position { x: ... }                 ← SAI (parse fail trên Fortress)
+#   - KHÔNG dùng dấu phẩy giữa các fields trong {}
 ```
 
 ---
@@ -484,18 +500,19 @@ gz service -s /world/{world_name}/set_pose \
 | Rough demo / draft | April 18, 2026 (TODO: verify) |
 | Final submission | April 25, 2026 (TODO: verify) |
 
-### Completed (Phase 1)
+### Completed (Phase 1 + Sim Smoothing)
 
-- [x] Gazebo Harmonic sim environment (oval + complex tracks)
+- [x] Ignition Gazebo 6 (Fortress) sim environment (oval + complex tracks)
 - [x] Camera-based BEV lane detection with cubic arc-length polynomial
 - [x] Sliding window algorithm with adaptive threshold
 - [x] EKF fusion: IMU predict + camera update [n, alpha] + joint_states update [v]
 - [x] NMPC (Kloeser 2020) — acados RTI+HPIPM — closed loop @ 30Hz
 - [x] Adaptive speed from curvature
-- [x] EKF/model velocity fallback in NMPC
-- [x] Reset node with keyboard + service + auto-reset
-- [x] Full pipeline launch file (`sim_full_launch.py`)
+- [x] EKF n/alpha/v feedback cho NMPC initial state (giảm dao động lái)
+- [x] Reset node: keyboard + service + auto-stop 2s + teleport qua `ign service`
+- [x] Full pipeline launch file (`sim_full_launch.py`), reset_node chạy riêng terminal 2
 - [x] Visualizer: 4-panel debug grid
+- [x] Fix joint damping + body mass → tốc độ thực tế khớp v_cmd
 
 ### Phase 1.5 Checklist (Hardware Deploy)
 
@@ -536,11 +553,13 @@ gz service -s /world/{world_name}/set_pose \
 
 | Issue | Root Cause | Solution |
 |-------|-----------|---------|
-| Gazebo segfault on load | Sensors plugin added twice | Do NOT add `gz-sim-sensors-system` to world SDF (already in xacro) |
+| Gazebo segfault on load | Sensors plugin added twice | Do NOT add `ign-gazebo-sensors-system` to world SDF (already in xacro) |
 | `No executable found` for ROS2 node | Empty `console_scripts` in setup.py | Add entry points to setup.py |
-| IMU `/imu/data` no data | Missing `gz-sim-imu-system` plugin | Already added to vehicle.xacro |
+| IMU `/imu/data` no data | Missing `ignition-gazebo-imu-system` plugin | Already added to vehicle.xacro |
 | NMPC warning `Gauss-Newton + EXTERNAL` | acados normal behavior | Safe to ignore |
-| reset_node teleport fails | Wrong world name | `world` in MAP_CONFIGS must match actual Gazebo world name |
+| `reset_node` teleport code=255 "Invalid arguments" | Dùng `gz service` của Gazebo Classic thay vì `ign service` của Ignition Fortress | Fixed: dùng `ign service --reqtype ignition.msgs.Pose` |
+| `reset_node` Q reset không teleport xe về vị trí ban đầu | (1) Protobuf format thiếu `:` trước nested message (`position { }` thay vì `position: {}`) — Fortress parser không chấp nhận; (2) Không có delay trước teleport → physics velocity còn → xe drift ngay sau teleport | Fixed: khôi phục format `position: {x:... y:... z:...}` + thêm delay 0.5s (5×0.1s publish stop) trước khi gọi `ign service` |
+| Xe dao động lái trái-phải trên đường thẳng | raw perception `e_y`/`e_psi` inject trực tiếp vào NMPC initial state | Fixed: dùng EKF-filtered `n`/`alpha`; tăng `w_delta` 10→50 (`rm -rf nmpc_build/` cần thiết) |
 | `libEGL warning: egl: failed to create dri2 screen` | GPU driver | Safe to ignore |
 
 ### Hardware-Specific Notes

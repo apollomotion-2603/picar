@@ -63,8 +63,9 @@ cho doanh nghiệp, đại học, sinh viên mới.
 - [ ] Test stream `/camera/image_raw` từ Pi về laptop
 
 ### Blockers hiện tại
-- Pi Camera 3 CFE driver conflict trên kernel 6.8 — chưa resolve
+- Pi Camera 3 CFE driver conflict — chưa resolve
 - Track 2 spawn position cần verify sau khi test
+- Xe còn dao động lái trái-phải khi chạy thẳng → đang fix (EKF state + w_delta)
 
 ---
 
@@ -98,12 +99,22 @@ Joint States ──→    ↑                    ↓
 ### NMPC key params
 | Tham số | Giá trị | Ghi chú |
 |---------|---------|---------|
-| V_MAX | 2.0 m/s | Sim; hardware giai đoạn 1: 0.3 m/s |
+| V_MAX | 1.5 m/s | Sim; hardware giai đoạn 1: 0.3 m/s |
 | N (horizon) | 30 steps | Tf=1.0s, dt=33ms |
 | w_n (lateral) | 200.0 | Penalize lane offset |
 | w_alpha (heading) | 100.0 | Penalize heading error |
+| w_delta (steering) | 50.0 | Penalize steering magnitude (tăng từ 10 để giảm dao động) |
 | kappa_factor | 8.0 | Speed reduction tại cua |
 | Solve time | 1–5ms | Margin 28ms so với 33ms period ✅ |
+
+### Sim smoothing fixes (đã áp dụng)
+- [x] Joint damping giảm: wheel joints `damping=0.001`, steering joints `damping=0.01`
+- [x] `body_density` giảm từ 7850 (thép) → 925 (ABS plastic) → mass ≈ 2.5 kg đúng
+- [x] Rear wheel mass fix: từ hardcode 2kg → dùng density formula (~0.09 kg/wheel)
+- [x] mpc_node: dùng EKF `n`/`alpha` (filtered) thay raw perception cho NMPC initial state → giảm dao động lái
+- [x] `w_delta` tăng 10 → 50 → giảm aggressiveness (cần `rm -rf nmpc_build/` để rebuild solver)
+- [x] reset_node: fix teleport dùng `ign service` + `ignition.msgs.Pose`
+- [x] reset_node: fix Q reset — protobuf format `position: {x:...}` (có `:`) + delay 0.5s trước teleport để physics settle
 
 ---
 
@@ -252,8 +263,9 @@ LiPo 3S
 └── 6V reg ──→ Servo (backup power)
 
 Laptop (apollomotion, 192.168.1.17):
-├── ROS2 Jazzy native (Ubuntu 24.04)
-├── Gazebo Harmonic v8.10
+├── Ubuntu 22.04 LTS
+├── ROS2 Humble native
+├── Ignition Gazebo 6 (Fortress) — dùng lệnh ign, không phải gz
 ├── acados v0.3.5 @ ~/acados/
 └── ROS_DOMAIN_ID=42
 ```
@@ -319,7 +331,8 @@ Laptop (apollomotion, 192.168.1.17):
 
 - **acados v0.3.5:** `~/acados/`, WARNING "Gauss-Newton + EXTERNAL" là bình thường
 - **tera_renderer v0.2.0:** build từ source Rust (required by acados)
-- **ROS2 Jazzy + Gazebo Harmonic v8.10:** không dùng Gazebo Classic
+- **ROS2 Humble + Ignition Gazebo 6 (Fortress):** dùng lệnh `ign service` (không phải `gz service`), msg type `ignition.msgs.*` (không phải `gz.msgs.*`)
+  - Protobuf text format: **PHẢI có `:` trước nested message** — `position: {x: X y: Y z: Z}` ← đúng; `position { x: X }` ← SAI (Fortress parse fail)
 
 ---
 

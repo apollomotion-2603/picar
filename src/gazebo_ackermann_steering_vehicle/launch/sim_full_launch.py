@@ -15,7 +15,7 @@ from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 
 MAP_CONFIGS = {
-    "1": {"world": "lane_track.sdf", "x": "1.5",  "y": "1.0",    "Y": "0.0"},
+    "1": {"world": "lane_track.sdf", "x": "0.0",  "y": "1.0",    "Y": "0.0"},
     "2": {"world": "track_test.sdf", "x": "0.0",  "y": "-2.666", "Y": "0.0"},
     "3": {"world": "lane_change.sdf", "x": "0.54",  "y": "0.75",    "Y": "0.0"},
     "4": {"world": "obstacle_track.sdf", "x": "1.5", "y": "1.0", "Y": "0.0"},

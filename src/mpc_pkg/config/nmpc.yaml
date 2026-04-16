@@ -14,7 +14,7 @@ nmpc_node:
     # Cost weights
     w_n: 200.0
     w_alpha: 100.0
-    w_delta: 10.0
+    w_delta: 50.0
     w_v: 0.5
     w_s_e: 50.0
     w_n_e: 2000.0

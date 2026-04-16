@@ -5,7 +5,7 @@ Reset Node
   S + Enter : xe bat dau chay
   X + Enter : xe dung
 """
-import math, threading, subprocess, sys
+import math, os, time, threading, subprocess, sys
 import rclpy
 from rclpy.node import Node
 from lane_msgs.msg import LaneState
@@ -14,10 +14,10 @@ from std_srvs.srv import Trigger
 
 LANE_STOP_TIMEOUT = 2.0   # giây không detect lane → auto STOP (không teleport)
 MAP_CONFIGS = {
-    1: {'world':'lane_track','x':0.0,'y':1.0,'z':0.15,'yaw':0.0},
-    2: {'world':'track_test','x':0.0,'y':-2.666,'z':0.15,'yaw':0.0},
-    3: {'world':'lane_change','x':0.54,'y':0.75,'z':0.15,'yaw':0.0},
-    4: {'world':'obstacle_track','x':0.0,'y':1.0,'z':0.15,'yaw':0.0},
+    1: {'world':'lane_track','x':0.0,'y':1.0,'z':0.05,'yaw':0.0},
+    2: {'world':'track_test','x':0.0,'y':-2.666,'z':0.05,'yaw':0.0},
+    3: {'world':'lane_change','x':0.54,'y':0.75,'z':0.05,'yaw':0.0},
+    4: {'world':'obstacle_track','x':1.5,'y':1.0,'z':0.05,'yaw':0.0},
 }
 
 def yaw_to_quat(yaw):
@@ -103,27 +103,51 @@ class ResetNode(Node):
 
     def do_reset(self):
         self.car_enabled = False
-        self._publish_stop()
+        # Publish stop nhiều lần + chờ 0.5s để physics dừng hoàn toàn trước khi teleport
+        for _ in range(5):
+            self._publish_stop()
+            time.sleep(0.1)
+        # Ignition Fortress protobuf text format: PHẢI có dấu ":" trước nested message
+        # Đúng: position: {x: ... y: ... z: ...}   (có ":", không có space trong {})
+        # Sai:  position { x: ... }                 (không ":", có space → Fortress parse fail)
         req = (
             f'name: "ackermann_steering_vehicle" '
             f'position: {{x: {self.spawn_x} y: {self.spawn_y} z: {self.spawn_z}}} '
             f'orientation: {{x: {self.qx} y: {self.qy} z: {self.qz:.4f} w: {self.qw:.4f}}}'
         )
-        cmd = (
-            f'ign service -s /world/{self.world}/set_pose '
-            f'--reqtype ignition.msgs.Pose --reptype ignition.msgs.Boolean --timeout 2000 '
-            f"--req '{req}'"
-        )
-        self.get_logger().info(f'Teleport cmd: {cmd}')
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if result.returncode != 0:
+        # Dùng list thay shell=True để tránh mọi vấn đề quoting/PATH
+        cmd_list = [
+            'ign', 'service',
+            '-s', f'/world/{self.world}/set_pose',
+            '--reqtype', 'ignition.msgs.Pose',
+            '--reptype', 'ignition.msgs.Boolean',
+            '--timeout', '2000',
+            '--req', req,
+        ]
+        self.get_logger().info(f'Teleport req: {req}')
+        try:
+            result = subprocess.run(cmd_list, capture_output=True, text=True,
+                                    env=os.environ, timeout=5.0)
+        except FileNotFoundError:
+            self.get_logger().error('ign binary not found! Kiem tra PATH.')
+            return
+        except subprocess.TimeoutExpired:
+            self.get_logger().error('ign service TIMEOUT (>5s)')
+            return
+
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        self.get_logger().info(f'ign stdout: "{stdout}" | code={result.returncode}')
+        if stderr:
+            self.get_logger().warn(f'ign stderr: "{stderr}"')
+
+        if result.returncode != 0 or 'data: false' in stdout:
             self.get_logger().error(
-                f'ign service FAILED (code={result.returncode})\n'
-                f'  stderr: {result.stderr.strip()}\n'
-                f'  stdout: {result.stdout.strip()}\n'
-                f'  Test thu cong: {cmd}')
+                f'Teleport FAILED — returncode={result.returncode} stdout="{stdout}"')
         else:
-            self.get_logger().info(f'Reset OK -> ({self.spawn_x},{self.spawn_y}) | Nhan S de chay')
+            self.get_logger().info(
+                f'Teleport OK -> ({self.spawn_x},{self.spawn_y}) | Nhan S de chay')
+        self._publish_stop()  # publish stop lần cuối sau teleport
         self.resetting = False
         self.last_detected_time = self.get_clock().now()
 

@@ -146,7 +146,7 @@ class NMPCNode(Node):
 
         # ── Build solver ──
         ws = os.path.expanduser(
-            '~/main/1_project/1_autonomous_driving/ros2_ws')
+            '~/main/1_projects/1_autonomous_car_research/ros2_ws')
         build_dir = os.path.join(ws, 'nmpc_build')
 
         self.get_logger().info(
@@ -207,9 +207,9 @@ class NMPCNode(Node):
     def lane_cb(self, msg: LaneState):
         if not msg.lane_detected:
             return
-        self.x_est[1] = msg.e_y
-        self.x_est[2] = msg.e_psi
-        self.kappa     = msg.kappa
+        self.perc_n     = msg.e_y
+        self.perc_alpha = msg.e_psi
+        self.kappa      = msg.kappa
         self.lane_ok   = True
         self.last_lane_time = self.get_clock().now()
         
@@ -226,6 +226,8 @@ class NMPCNode(Node):
     def ekf_cb(self, msg: VehicleState):
         if msg.ekf_healthy:
             self.ekf_v       = msg.v
+            self.ekf_n       = msg.n
+            self.ekf_alpha   = msg.alpha
             self.ekf_healthy = True
         else:
             self.ekf_healthy = False
@@ -243,6 +245,14 @@ class NMPCNode(Node):
         if dt_lane > self.TIMEOUT or not self.lane_ok:
             self._publish(0.0, 0.0)
             return
+
+        # Dùng EKF n/alpha (đã lọc) nếu healthy, fallback sang raw perception
+        if self.ekf_healthy and self.ekf_n is not None:
+            self.x_est[1] = float(np.clip(self.ekf_n,     -self.N_MAX,     self.N_MAX))
+            self.x_est[2] = float(np.clip(self.ekf_alpha, -self.DELTA_MAX, self.DELTA_MAX))
+        else:
+            self.x_est[1] = self.perc_n
+            self.x_est[2] = self.perc_alpha
 
         self.solver.set(0, 'lbx', self.x_est)
         self.solver.set(0, 'ubx', self.x_est)
