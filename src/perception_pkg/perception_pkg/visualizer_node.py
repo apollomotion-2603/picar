@@ -9,8 +9,10 @@ Visualizer Node — publish 4 views gộp thành 1 grid 2x2
 """
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+from lane_msgs.msg import LaneState
 import cv2
 import numpy as np
 
@@ -70,15 +72,27 @@ class VisualizerNode(Node):
             f'Visualizer: BEV={self.BEV_W}x{self.BEV_H} scale={self.SCALE}m/px '
             f'WIN_W={self.WIN_W}px')
 
+        # QoS: depth=1 → chỉ xem frame mới nhất, không để frame cũ tích lũ (giảm lag)
+        sensor_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1
+        )
         self.sub  = self.create_subscription(
-            Image, "/camera/image_raw", self.callback, 10)
-        self.pub1 = self.create_publisher(Image, "/perception/view1_raw",       10)
-        self.pub2 = self.create_publisher(Image, "/perception/view2_bev",       10)
-        self.pub3 = self.create_publisher(Image, "/perception/view3_threshold", 10)
-        self.pub4 = self.create_publisher(Image, "/perception/view4_lanes",     10)
-        self.pubG = self.create_publisher(Image, "/perception/debug_grid",      10)
+            Image, "/camera/image_raw", self.callback, sensor_qos)
+        self.pub1 = self.create_publisher(Image, "/perception/view1_raw",       1)
+        self.pub2 = self.create_publisher(Image, "/perception/view2_bev",       1)
+        self.pub3 = self.create_publisher(Image, "/perception/view3_threshold", 1)
+        self.pub4 = self.create_publisher(Image, "/perception/view4_lanes",     1)
+        self.pubG = self.create_publisher(Image, "/perception/debug_grid",      1)
 
-        self.get_logger().info("Visualizer node started → /perception/debug_grid")
+        self.get_logger().info("Visualizer node started → /perception/debug_grid (queue=1, best-effort)")
+
+        # Sub lane_state — lấy giá trị thực tế từ perception_node (arc-length fit)
+        self.lane_state = None
+        self.create_subscription(
+            LaneState, '/perception/lane_state', self._lane_state_cb, 10)
+
 
     def callback(self, msg):
         hdr = msg.header
@@ -160,12 +174,37 @@ class VisualizerNode(Node):
 
         cv2.line(v4,(self.BEV_W//2,0),(self.BEV_W//2,self.BEV_H),CLR_REF,1)
         put_text(v4,"4: Lanes",0,(200,200,200))
-        if e_y is not None:
-            put_text(v4,f"e_y:  {e_y:+.4f}m",   1,CLR_TEXT)
-            put_text(v4,f"epsi: {np.degrees(e_psi):+.1f}d",2,CLR_TEXT)
-            put_text(v4,f"kap:  {kappa:+.4f}",   3,CLR_TEXT)
+
+        # ── Overlay giá trị THỰC TỎa từ perception_node (arc-length fit) ──
+        ls = self.lane_state
+        if ls is not None and ls.lane_detected:
+            # Vẽ đường center từ hệ số polynomial thực tế (coeff_a..d)
+            # x_c(s) = a*s^3 + b*s^2 + c*s + d, với s đo bằng [m]
+            # Convert s → pixel y: s=0 → y=BEV_H (bottom), s thăng theo y giảm
+            pts_real = []
+            for sv in np.linspace(0.0, min(ls.s_max, 0.65), 40):
+                xc_m = ls.coeff_a*sv**3 + ls.coeff_b*sv**2 + ls.coeff_c*sv + ls.coeff_d
+                xc_px = int(xc_m/self.SCALE + self.BEV_W/2)
+                yc_px = int(self.BEV_H - sv/self.SCALE * self.SCALE / self.SCALE
+                            * (self.BEV_H / (ls.s_max if ls.s_max > 0.05 else 0.7)))
+                yc_px = int(self.BEV_H * (1.0 - sv / (ls.s_max if ls.s_max > 0.05 else 0.7)))
+                if 0 <= xc_px < self.BEV_W and 0 <= yc_px < self.BEV_H:
+                    pts_real.append((xc_px, yc_px))
+            if len(pts_real) > 1:
+                cv2.polylines(v4, [np.array(pts_real)], False, (0, 255, 0), 3)  # GREEN = real
+
+            put_text(v4, f"e_y : {ls.e_y*1000:+.1f}mm",     1, (0, 255, 0))
+            put_text(v4, f"epsi: {np.degrees(ls.e_psi):+.1f}d", 2, (0, 255, 0))
+            put_text(v4, f"kap : {ls.kappa:+.4f}",           3, (0, 255, 0))
+        elif ls is not None and not ls.lane_detected:
+            put_text(v4, "LOST", 1, (0, 0, 255))
         else:
-            put_text(v4,"NO LANE",1,(0,0,255))
+            put_text(v4, "wait lane_state", 1, (100, 100, 100))
+        # Giữ lại text approximate nếu không có lane_state
+        if ls is None and e_y is not None:
+            put_text(v4, f"~e_y:  {e_y:+.4f}m",          1, CLR_TEXT)
+            put_text(v4, f"~epsi: {np.degrees(e_psi):+.1f}d", 2, CLR_TEXT)
+            put_text(v4, f"~kap:  {kappa:+.4f}",          3, CLR_TEXT)
 
         # ── Publish individual topics ──
         for pub,view in [(self.pub1,v1),(self.pub2,v2),
@@ -224,6 +263,11 @@ class VisualizerNode(Node):
                 right_x=int(np.mean(pr[1]))+xr1
                 right_pts.append((right_x,(yt+yb)//2))
         return left_pts,right_pts,boxes
+
+    def _lane_state_cb(self, msg: LaneState):
+        """Cache lane state mới nhất từ perception_node để overlay lên LANES panel."""
+        self.lane_state = msg
+
 
 
 def main(args=None):

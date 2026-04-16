@@ -12,7 +12,9 @@ from lane_msgs.msg import LaneState
 from std_msgs.msg import Float64, Bool
 from std_srvs.srv import Trigger
 
-LANE_STOP_TIMEOUT = 2.0   # giây không detect lane → auto STOP (không teleport)
+LANE_STOP_TIMEOUT = 1.5   # giây không detect lane → auto STOP
+LANE_OUT_TIMEOUT  = 1.5   # giây |e_y| > N_MAX → xe đã rời khỏi làn, auto STOP
+N_MAX_STOP        = 0.18  # [m] ngưỡng lateral offset coi là “lạc làn” (mềm hơn n_max=0.20)
 MAP_CONFIGS = {
     1: {'world':'lane_track','x':0.0,'y':1.0,'z':0.05,'yaw':0.0},
     2: {'world':'track_test','x':0.0,'y':-2.666,'z':0.05,'yaw':0.0},
@@ -37,6 +39,7 @@ class ResetNode(Node):
         self.spawn_z = cfg['z']
         self.qx,self.qy,self.qz,self.qw = yaw_to_quat(cfg['yaw'])
         self.last_detected_time = self.get_clock().now()
+        self.last_inlane_time   = self.get_clock().now()  # theo dõi khi |e_y| vẫn nhỏ
         self.resetting   = False
         self.car_enabled = False
         self.pub_vel     = self.create_publisher(Float64,'/velocity',10)
@@ -61,13 +64,25 @@ class ResetNode(Node):
         if msg.lane_detected and self.car_enabled:
             self.last_detected_time = self.get_clock().now()
             self.resetting = False
+            # Theo dõi xe có ở gần tâm làn không
+            if abs(msg.e_y) < N_MAX_STOP:
+                self.last_inlane_time = self.get_clock().now()
 
     def check_timeout(self):
         if not self.car_enabled:
             return
-        elapsed = (self.get_clock().now()-self.last_detected_time).nanoseconds*1e-9
-        if elapsed > LANE_STOP_TIMEOUT:
-            self.get_logger().warn(f'Lane lost {elapsed:.1f}s — auto STOP! Nhan Q de reset.')
+        now = self.get_clock().now()
+        elapsed_lost = (now - self.last_detected_time).nanoseconds * 1e-9
+        elapsed_out  = (now - self.last_inlane_time).nanoseconds * 1e-9
+
+        if elapsed_lost > LANE_STOP_TIMEOUT:
+            self.get_logger().warn(
+                f'[AUTO-STOP] Lane LOST {elapsed_lost:.1f}s — xe đã dừng. Nhấn Q để reset.')
+            self.car_enabled = False
+            self._publish_stop()
+        elif elapsed_out > LANE_OUT_TIMEOUT:
+            self.get_logger().warn(
+                f'[AUTO-STOP] |e_y| > {N_MAX_STOP}m trong {elapsed_out:.1f}s — xe rời làn. Nhấn Q reset.')
             self.car_enabled = False
             self._publish_stop()
 
