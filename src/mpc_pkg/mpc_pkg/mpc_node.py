@@ -170,7 +170,13 @@ class NMPCNode(Node):
 
         # ── EKF ──
         self.ekf_v       = None
+        self.ekf_n       = None
+        self.ekf_alpha   = None
         self.ekf_healthy = False
+
+        # Raw perception fallback (dùng khi EKF chưa healthy)
+        self.perc_n     = 0.0
+        self.perc_alpha = 0.0
 
         self.poly_a = 0.0
         self.poly_b = 0.0

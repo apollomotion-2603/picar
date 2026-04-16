@@ -29,7 +29,7 @@ def load_robot_description(xacro_path, params_path):
 
 def generate_launch_description():
     pkg = get_package_share_directory("gazebo_ackermann_steering_vehicle")
-    ws  = os.path.expanduser("~/main/1_project/1_autonomous_driving/ros2_ws")
+    ws  = os.path.expanduser("~/main/1_projects/1_autonomous_car_research/ros2_ws")
 
     # Resolve map id
     map_id_val = "1"
@@ -107,11 +107,6 @@ def generate_launch_description():
              arguments=["--ros-args", "--params-file", nmpc_yaml],
              output="screen")])
 
-    reset = TimerAction(period=8.0, actions=[
-        Node(package="ekf_pkg", executable="reset_node",
-             arguments=["--ros-args", "-p", f"map_id:={map_id_val}"],
-             output="screen")])
-
     visualizer = TimerAction(period=6.5, actions=[
         Node(package="perception_pkg", executable="visualizer_node",
              output="screen")])
@@ -136,6 +131,5 @@ def generate_launch_description():
         ekf,
         visualizer,
         nmpc,
-        reset,
         grid_viewer,
     ])

@@ -201,7 +201,7 @@
       </geometry>
     </collision>
     <inertial>
-      <mass value="2"/>
+      <mass value="${wheel_mass}"/>
       <inertia ixx="${wheel_inertia_x}" ixy="0.0" ixz="0.0" iyy="${wheel_inertia_y}" iyz="0" izz="${wheel_inertia_z}"/>
       <origin xyz="0.0 0.0 0.0" rpy="1.570795 0.0 0.0"/>
     </inertial>
@@ -225,7 +225,7 @@
       </geometry>
     </collision>
     <inertial>
-      <mass value="2"/>
+      <mass value="${wheel_mass}"/>
       <inertia ixx="${wheel_inertia_x}" ixy="0.0" ixz="0.0" iyy="${wheel_inertia_y}" iyz="0" izz="${wheel_inertia_z}"/>
       <origin xyz="0.0 0.0 0.0" rpy="1.570795 0.0 0.0"/>
     </inertial>
@@ -303,7 +303,7 @@
     <child link="front_left_steering_link"/>
     <axis xyz="0 0 1"/>
     <limit effort="${max_steering_effort}" lower="${-max_steering_angle}" upper="${max_steering_angle}" velocity="${max_steering_angular_velocity}"/>
-    <dynamics damping="0.1" friction="0.1"/>
+    <dynamics damping="0.01" friction="0.01"/>
   </joint>
 
   <!-- Front Left Wheel Joint -->
@@ -311,9 +311,9 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
     <parent link="front_left_steering_link"/>
     <child link="front_left_wheel_link"/>
-    <axis xyz="0 1 0"/> 
+    <axis xyz="0 1 0"/>
     <limit effort="${max_effort}" velocity="${max_wheel_angular_velocity}"/>
-    <dynamics damping="0.1" friction="0.1"/>
+    <dynamics damping="0.001" friction="0.0"/>
   </joint>
 
   <!-- Front Right Steering Joint -->
@@ -323,7 +323,7 @@
     <child link="front_right_steering_link"/>
     <axis xyz="0 0 1"/>
     <limit effort="${max_steering_effort}" lower="${-max_steering_angle}" upper="${max_steering_angle}" velocity="${max_steering_angular_velocity}"/>
-    <dynamics damping="0.1" friction="0.1"/>
+    <dynamics damping="0.01" friction="0.01"/>
   </joint>
 
   <!-- Front Right Wheel Joint -->
@@ -331,9 +331,9 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
     <parent link="front_right_steering_link"/>
     <child link="front_right_wheel_link"/>
-    <axis xyz="0 1 0"/> 
+    <axis xyz="0 1 0"/>
     <limit effort="${max_effort}" velocity="${max_wheel_angular_velocity}"/>
-    <dynamics damping="0.1" friction="0.1"/>
+    <dynamics damping="0.001" friction="0.0"/>
   </joint>
 
   <!-- Rear Left Wheel Joint -->
@@ -343,7 +343,7 @@
     <child link="rear_left_wheel_link"/>
     <axis xyz="0 1 0"/>
     <limit effort="${max_effort}" velocity="${max_wheel_angular_velocity}"/>
-    <dynamics damping="0.1" friction="0.1"/>
+    <dynamics damping="0.001" friction="0.0"/>
   </joint>
 
   <!-- Rear Right Wheel Joint -->
@@ -353,7 +353,7 @@
     <child link="rear_right_wheel_link"/>
     <axis xyz="0 1 0"/>
     <limit effort="${max_effort}" velocity="${max_wheel_angular_velocity}"/>
-    <dynamics damping="0.1" friction="0.1"/>
+    <dynamics damping="0.001" friction="0.0"/>
   </joint>
 
   <!-- IMU Joint -->

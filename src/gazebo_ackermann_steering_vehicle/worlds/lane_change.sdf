@@ -48,7 +48,7 @@
             <specular>0.05 0.05 0.05 1</specular>
             <pbr>
               <metal>
-                <albedo_map>/home/apollomotion/main/1_project/1_autonomous_driving/ros2_ws/install/gazebo_ackermann_steering_vehicle/share/gazebo_ackermann_steering_vehicle/media/materials/textures/lane_change.png</albedo_map>
+                <albedo_map>/home/phibui2112/main/1_projects/1_autonomous_car_research/ros2_ws/install/gazebo_ackermann_steering_vehicle/share/gazebo_ackermann_steering_vehicle/media/materials/textures/lane_change.png</albedo_map>
                 <roughness>1.0</roughness>
                 <metalness>0.0</metalness>
               </metal>

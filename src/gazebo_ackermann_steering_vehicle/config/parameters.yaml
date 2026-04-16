@@ -4,7 +4,7 @@
     body_length: 0.3 # Length of the vehicle's body [m]
     body_width: 0.18 # Width of the vehicle's body [m]
     body_height: 0.05 # Height of the vehicle's body [m]
-    body_density: 7850.0 # Density of the vehicle's body material, e.g., steel [kg/m^3]
+    body_density: 925.0 # Density ~ ABS plastic [kg/m^3] → body_mass ≈ 2.5 kg
 
     # Wheel params
     wheel_radius: 0.04 # Radius of each wheel [m]
