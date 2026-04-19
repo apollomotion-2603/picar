@@ -532,6 +532,58 @@ ign service -s /world/{world_name}/set_pose \
   - **kappa từ quadratic fit (bậc 2)** thay vì cubic — ít overfit, không còn gây xe văng
   - coeff_a,b,c,d vẫn từ cubic (dùng cho MPC horizon tracking)
 
+### Kappa Pipeline Overhaul (Apr 2026) — Fix dao động lái
+
+Phân tích hệ thống toàn bộ pipeline kappa từ perception → EKF → MPC. Phát hiện 7 vấn đề, fix 4 vấn đề quan trọng nhất:
+
+- [x] **Fix #1 — zip ghép sai Y (perception_node)**: `sliding_window()` trả thêm `center_pts`
+  chỉ chứa center từ windows có CẢ HAI lane detect cùng Y. Trước đó `zip(left_pts, right_pts)`
+  ghép theo index → khi window miss không đều giữa 2 bên → center points ở Y khác nhau →
+  polynomial fit sai → kappa/e_psi sai. Fix này làm map 3 DLC cải thiện rõ rệt.
+
+- [x] **Fix #2 — Thống nhất kappa source (mpc_node)**: Horizon kappa giờ dùng `kappa_smooth`
+  (quadratic fit + EMA, cùng nguồn với perception publish). Trước đó MPC re-derive kappa
+  từ cubic coefficients → hai kappa khác nhau tại s=0. Constant kappa toàn horizon là
+  hợp lý vì camera chỉ nhìn 0.7m, control rate 30Hz, và `kappa=0` đã chạy tốt.
+
+- [x] **Fix #3 — Bỏ EMA trên polynomial coefficients (mpc_node)**: Xóa hoàn toàn `poly_a/b/c/d`
+  và EMA của chúng. Trộn coefficients giữa các frame (khi xe di chuyển, gốc tọa độ dịch)
+  là vô nghĩa toán học — polynomial ở 2 thời điểm khác nhau không thể cộng tuyến tính
+  thành polynomial hợp lệ. Xóa luôn `poly_ema_alpha` param từ cả 2 yaml + `perc_s_max`
+  variable.
+
+- [x] **Fix #4 — Startup kappa bias (mpc_node enabled_cb)**: Reset `kappa_smooth=0` khi
+  `car_enabled` chuyển False→True. Trên map 1, khi xe đứng yên, perception publish
+  cùng giá trị kappa=-0.1182 mỗi frame (static bias do sliding window không đối xứng tuyệt
+  đối). Sau 4.5s chờ user nhấn start, `kappa_smooth` hội tụ về -0.1182. Khi start, MPC
+  ngay lập tức dùng kappa=-0.12 → model nghĩ đường cong trái → steer gắt sang phải →
+  feedback loop → oscillation. Fix: reset kappa về 0 ở startup, kappa thật build up từ
+  perception data trong vài frame đầu chạy.
+
+### Kappa Pipeline — Issues còn LẠI (chưa fix)
+
+| # | Vấn đề | Mức | Ảnh hưởng |
+|---|--------|-----|-----------|
+| 5 | Double exponential weighting trong perception (u-space + s-space) | MAJOR | Near-field bias quá mạnh, far-field gần như bị bỏ |
+| 6 | Sliding window drift ở upper windows | MODERATE | Tích lũy error window-over-window |
+| 7 | Kappa noisy → EKF predict `alpha_dot` noisy → feedback loop | MODERATE | Amplify noise qua closed loop |
+
+### Kappa Pipeline — Phương pháp thay thế polynomial (suggestions)
+
+Polynomial fit có bias không tránh được (fit bậc 3 với 10 điểm luôn có curvature nhỏ
+khác 0 dù đường thẳng). Các phương án thay thế có thể thử sau:
+
+| Phương pháp | Ý tưởng | Ưu điểm | Nhược điểm |
+|---|---|---|---|
+| **Circle fitting** | Fit đường tròn qua center points → kappa=1/R | Kappa trực tiếp, robust, 1 giá trị | Chỉ 1 kappa, không model S-curve |
+| **Menger curvature** | Kappa từ 3 điểm liên tiếp (tam giác ngoại tiếp) | Cực đơn giản, local | Nhạy noise nếu điểm gần nhau |
+| **B-spline** | Thay polynomial bằng B-spline | Local control, ổn định hơn | Phức tạp hơn polyfit |
+| **RANSAC + polyfit** | RANSAC loại outlier trước fit | Handle sliding window drift | Thêm latency |
+| **Kalman filter (e_y, e_psi, kappa)** | KF tracking thay EMA | Model dynamics, tự adapt gain | Cần tune Q, R |
+
+**Khuyến nghị:** Circle fitting hoặc Kalman filter nếu pipeline hiện tại vẫn còn vấn đề
+trên hardware thật. Với sim hiện tại (sau 4 fixes trên), đủ mượt cho demo.
+
 ### Phase 1.5 Checklist (Hardware Deploy)
 
 - [ ] Resolve Pi Camera 3 CFE driver issue on RPi OS

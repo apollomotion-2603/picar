@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="track">
+    <static>true</static>
+    <link name="link">
+
+      <collision name="collision">
+        <geometry>
+          <plane>
+            <normal>0 0 1</normal>
+            <!-- Kích thước mặt phẳng: 20m x 20.3m (tỷ lệ 2048x2080px) -->
+            <size>20 20.3</size>
+          </plane>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>100</mu>
+              <mu2>50</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+
+      <visual name="visual">
+        <cast_shadows>false</cast_shadows>
+        <geometry>
+          <plane>
+            <normal>0 0 1</normal>
+            <size>20 20.3</size>
+          </plane>
+        </geometry>
+        <material>
+          <script>
+            <!-- Cần khai báo cả scripts lẫn textures để Ogre tìm thấy ảnh -->
+            <uri>model://track/materials/scripts</uri>
+            <uri>model://track/materials/textures</uri>
+            <name>Track/Surface</name>
+          </script>
+        </material>
+      </visual>
+
+    </link>
+  </model>
+</sdf>

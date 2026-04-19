@@ -45,24 +45,28 @@ class VisualizerNode(Node):
         super().__init__("visualizer_node")
         self.bridge = CvBridge()
 
-        # Đọc params từ yaml (giống perception_node — phải khới động cùng params-file)
-        self.declare_parameter('bev_src', [172.0,151.0,471.0,151.0,609.0,368.0,29.0,368.0])
-        self.declare_parameter('bev_dst', [100.0,0.0,300.0,0.0,300.0,500.0,100.0,500.0])
-        self.declare_parameter('bev_width',  400)
+        # Đọc params từ yaml (giống perception_node — chạy cùng params-file)
+        self.declare_parameter('bev_src', [172.0,151.0,471.0,151.0,609.0,365.0,29.0,368.0])
+        self.declare_parameter('bev_dst', [50.0,0.0,250.0,0.0,250.0,500.0,50.0,500.0])
+        self.declare_parameter('bev_width',  300)
         self.declare_parameter('bev_height', 500)
         self.declare_parameter('bev_scale',  0.0025)
         self.declare_parameter('n_windows',  10)
-        self.declare_parameter('win_width',  80)
-        self.declare_parameter('min_pixels', 15)
+        self.declare_parameter('win_width',  60)
+        self.declare_parameter('min_pixels', 20)
+        self.declare_parameter('thresh_block_size', 35)
+        self.declare_parameter('thresh_c', 10)
 
         src_flat = self.get_parameter('bev_src').value
         dst_flat = self.get_parameter('bev_dst').value
-        self.BEV_W     = self.get_parameter('bev_width').value
-        self.BEV_H     = self.get_parameter('bev_height').value
-        self.SCALE     = self.get_parameter('bev_scale').value
-        self.N_WIN     = self.get_parameter('n_windows').value
-        self.WIN_W     = self.get_parameter('win_width').value
-        self.MIN_PIX   = self.get_parameter('min_pixels').value
+        self.BEV_W       = self.get_parameter('bev_width').value
+        self.BEV_H       = self.get_parameter('bev_height').value
+        self.SCALE       = self.get_parameter('bev_scale').value
+        self.N_WIN       = self.get_parameter('n_windows').value
+        self.WIN_W       = self.get_parameter('win_width').value
+        self.MIN_PIX     = self.get_parameter('min_pixels').value
+        self.THRESH_BLOCK = self.get_parameter('thresh_block_size').value
+        self.THRESH_C    = self.get_parameter('thresh_c').value
 
         SRC = np.float32(src_flat).reshape(4, 2)
         DST = np.float32(dst_flat).reshape(4, 2)
@@ -124,7 +128,7 @@ class VisualizerNode(Node):
         blur   = cv2.GaussianBlur(gray,(5,5),0)
         binary = cv2.adaptiveThreshold(
             blur,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV,35,10)
+            cv2.THRESH_BINARY_INV,self.THRESH_BLOCK,self.THRESH_C)
 
         # ── VIEW 3: Threshold + histogram ──
         v3 = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)

@@ -111,22 +111,20 @@ class PerceptionNode(Node):
             cv2.THRESH_BINARY_INV,
             self.THRESH_BLOCK, self.THRESH_C)
 
-        left_pts, right_pts = self.sliding_window(binary)
+        left_pts, right_pts, center_pts = self.sliding_window(binary)
 
         lane_msg = LaneState()
         lane_msg.header.stamp    = self.get_clock().now().to_msg()
         lane_msg.header.frame_id = 'camera'
 
-        n_left  = len(left_pts)
-        n_right = len(right_pts)
+        n_left   = len(left_pts)
+        n_right  = len(right_pts)
+        n_center = len(center_pts)
 
         # ── Mode selection ──
-        if n_left >= 4 and n_right >= 4:
+        # NORMAL: dùng center_pts từ sliding_window (đã ghép đúng Y level)
+        if n_center >= 4:
             mode = 'NORMAL'
-            center_pts = [
-                ((l[0] + r[0]) // 2, (l[1] + r[1]) // 2)
-                for l, r in zip(left_pts, right_pts)
-            ]
             fit_pts = center_pts
             e_y_offset = 0.0
 
@@ -181,16 +179,24 @@ class PerceptionNode(Node):
         self.pub.publish(lane_msg)
 
     def sliding_window(self, binary):
+        """
+        Sliding window lane detection.
+        Returns: (left_pts, right_pts, center_pts)
+        - center_pts chỉ chứa điểm từ windows có CẢ HAI lane detect (cùng Y level)
+        - Fix bug zip ghép sai Y khi window miss không đều giữa 2 bên
+        """
         hist    = np.sum(binary[self.BEV_H // 2:, :], axis=0)
         mid     = self.BEV_W // 2
         left_x  = int(np.argmax(hist[:mid]))
         right_x = int(np.argmax(hist[mid:])) + mid
         win_h   = self.BEV_H // self.N_WIN
-        left_pts, right_pts = [], []
+        left_pts, right_pts, center_pts = [], [], []
 
         for w in range(self.N_WIN):
             y_top = self.BEV_H - (w + 1) * win_h
             y_bot = self.BEV_H - w * win_h
+            y_mid = (y_top + y_bot) // 2
+
             xl1 = max(left_x  - self.WIN_W // 2, 0)
             xl2 = min(left_x  + self.WIN_W // 2, self.BEV_W)
             xr1 = max(right_x - self.WIN_W // 2, 0)
@@ -199,14 +205,23 @@ class PerceptionNode(Node):
             roi_r = binary[y_top:y_bot, xr1:xr2]
             px_l  = np.where(roi_l > 0)
             px_r  = np.where(roi_r > 0)
-            if len(px_l[1]) > self.MIN_PIX:
-                left_x = int(np.mean(px_l[1])) + xl1
-                left_pts.append((left_x, (y_top + y_bot) // 2))
-            if len(px_r[1]) > self.MIN_PIX:
-                right_x = int(np.mean(px_r[1])) + xr1
-                right_pts.append((right_x, (y_top + y_bot) // 2))
 
-        return left_pts, right_pts
+            left_found = len(px_l[1]) > self.MIN_PIX
+            right_found = len(px_r[1]) > self.MIN_PIX
+
+            if left_found:
+                left_x = int(np.mean(px_l[1])) + xl1
+                left_pts.append((left_x, y_mid))
+            if right_found:
+                right_x = int(np.mean(px_r[1])) + xr1
+                right_pts.append((right_x, y_mid))
+
+            # Center point chỉ khi CẢ HAI lane detect trong CÙNG window (cùng Y)
+            if left_found and right_found:
+                center_x = (left_x + right_x) // 2
+                center_pts.append((center_x, y_mid))
+
+        return left_pts, right_pts, center_pts
 
 
 def main(args=None):

@@ -16,6 +16,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Imu, JointState
+from std_msgs.msg import Bool
 from lane_msgs.msg import LaneState, VehicleState
 
 # ─────────────────────────────────────────
@@ -115,6 +116,12 @@ class RCCarEKF:
         diag = np.diag(self.P)
         return bool(np.all(diag < 100.0) and np.all(diag > 0.0))
 
+    def reset(self):
+        """Reset EKF state và covariance về giá trị ban đầu."""
+        self.x = np.zeros(6)
+        self.x[4] = 0.1   # v initial
+        self.P = np.diag([0.01, 0.05, 0.01, 0.05, 0.1, 0.1])
+
 
 # ─────────────────────────────────────────
 #  ROS2 Node
@@ -138,6 +145,9 @@ class EKFNode(Node):
         # Velocity từ joint_states
         self.v_wheel = None
 
+        # car_enabled state
+        self.car_enabled = False
+
         # Publishers
         self.pub = self.create_publisher(VehicleState, '/ekf/vehicle_state', 10)
 
@@ -145,6 +155,7 @@ class EKFNode(Node):
         self.create_subscription(Imu, '/imu/data', self.imu_cb, 10)
         self.create_subscription(LaneState, '/perception/lane_state', self.lane_cb, 10)
         self.create_subscription(JointState, '/joint_states', self.joint_cb, 10)
+        self.create_subscription(Bool, '/car_enabled', self.enabled_cb, 10)
 
         # EKF timer @ 100Hz — chạy predict mỗi 10ms
         self.dt = 0.01
@@ -191,6 +202,16 @@ class EKFNode(Node):
         if vl is not None and vr is not None:
             omega_avg = (abs(vl) + abs(vr)) / 2.0
             self.v_wheel = omega_avg * WHEEL_RADIUS
+
+    # ── car_enabled callback ───────────────────────
+    def enabled_cb(self, msg: Bool):
+        prev = self.car_enabled
+        self.car_enabled = msg.data
+        # Reset EKF khi xe được start (False→True)
+        if not prev and self.car_enabled:
+            self.ekf.reset()
+            self.kappa = 0.0
+            self.get_logger().info('car_enabled: False→True, reset EKF + kappa')
 
     # ── EKF timer @ 100Hz ─────────────────────────
     def ekf_cb(self):

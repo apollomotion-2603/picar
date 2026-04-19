@@ -1,0 +1,22 @@
+// Ogre material script cho track surface
+// Gazebo tự động thêm thư mục materials/textures/ vào resource path của Ogre
+// nên texture chỉ cần ghi tên file (không cần full path)
+
+material Track/Surface
+{
+    technique
+    {
+        pass
+        {
+            ambient  1.0 1.0 1.0 1.0
+            diffuse  1.0 1.0 1.0 1.0
+            specular 0.1 0.1 0.1 1.0 128.0
+
+            texture_unit
+            {
+                texture line.png
+                filtering trilinear
+            }
+        }
+    }
+}

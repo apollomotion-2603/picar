@@ -65,7 +65,7 @@ cho doanh nghiệp, đại học, sinh viên mới.
 ### Blockers hiện tại
 - Pi Camera 3 CFE driver conflict — chưa resolve
 - Track 2 spawn position cần verify sau khi test
-- Xe còn dao động lái trái-phải khi chạy thẳng → đang fix (EKF state + w_delta)
+- ~~Xe còn dao động lái trái-phải khi chạy thẳng~~ → **ĐÃ FIX** (xem mục Sim smoothing fixes)
 
 ---
 
@@ -103,9 +103,11 @@ Joint States ──→    ↑                    ↓
 | N (horizon) | 30 steps | Tf=1.0s, dt=33ms |
 | w_n (lateral) | 200.0 | Penalize lane offset |
 | w_alpha (heading) | 100.0 | Penalize heading error |
-| w_delta (steering) | **80.0** | Penalize steering magnitude (10→50→80, suppress DLC oscillation; `rm -rf nmpc_build/`) |
-| kappa_max | 3.0 | Clamp kappa_pred trong horizon — ngăn singularity khi perception noise |
+| w_delta (steering) | **50.0** (map1) / **80.0** (map3) | Per-map: map1 mềm hơn, map3 suppress DLC oscillation |
+| kappa_max | 2.0 | Clamp kappa trong horizon — ngăn singularity |
 | kappa_factor | 8.0 | Speed reduction tại cua |
+| kappa_smooth_alpha | **0.30** (map1) / **0.70** (map3) | EMA kappa: map1 nhanh, map3 lọc nhiều |
+| Horizon kappa | constant = `kappa_smooth` | Không còn re-derive từ cubic polynomial |
 | Solve time | 1–5ms | Margin 28ms so với 33ms period ✅ |
 
 ### Sim smoothing fixes (đã áp dụng)
@@ -120,6 +122,10 @@ Joint States ──→    ↑                    ↓
 - [x] **Polynomial bowing fix**: clip `us_m ≤ s_max_m`, near-field exponential weighting, kappa từ quadratic fit
 - [x] **kappa_max=3.0**: clamp kappa_pred trong MPC horizon — ngăn singularity khi perception spike
 - [x] **diagnostic_kappa_zero**: flag trong nmpc.yaml để bypass kappa từ perception khi debug
+- [x] **Fix #1 — zip ghép sai Y**: `sliding_window()` trả thêm `center_pts` chỉ từ windows mà CẢ HAI lane detect cùng Y. Trước đó `zip(left_pts, right_pts)` ghép theo index → sai khi window miss không đều giữa 2 bên
+- [x] **Fix #2 — Thống nhất kappa source**: MPC horizon dùng `kappa_smooth` (constant, từ quadratic fit + EMA) thay vì re-derive từ cubic polynomial coefficients. Tránh mâu thuẫn giữa 2 kappa source khác nhau
+- [x] **Fix #3 — Bỏ EMA trên polynomial coefficients**: Xóa hoàn toàn `poly_a/b/c/d` EMA trong mpc_node — trộn coefficients từ frame khác nhau là vô nghĩa toán học (gốc tọa độ dịch khi xe chạy). Xóa `poly_ema_alpha` param từ cả 2 yaml
+- [x] **Fix startup kappa bias**: Reset `kappa_smooth=0` khi `car_enabled` chuyển False→True. Perception tích lũy kappa bias (-0.12 trên map 1 đường thẳng) khi xe đứng yên → MPC start với kappa sai → đánh lái gắt ngay khi khởi động
 
 ---
 

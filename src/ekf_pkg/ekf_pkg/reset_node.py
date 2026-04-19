@@ -18,7 +18,7 @@ N_MAX_STOP        = 0.22  # [m] tăng 0.18→0.22: tránh false trigger khi xe D
 MAP_CONFIGS = {
     1: {'world':'lane_track','x':0.0,'y':1.0,'z':0.05,'yaw':0.0},
     2: {'world':'track_test','x':0.0,'y':-2.666,'z':0.05,'yaw':0.0},
-    3: {'world':'lane_change','x':0.54,'y':0.75,'z':0.05,'yaw':0.0},
+    3: {'world':'lane_change','x':0.0,'y':0.75,'z':0.05,'yaw':0.0},
     4: {'world':'obstacle_track','x':1.5,'y':1.0,'z':0.05,'yaw':0.0},
 }
 

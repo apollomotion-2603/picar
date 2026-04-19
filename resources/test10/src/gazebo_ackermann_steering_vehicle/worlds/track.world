@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="track_world">
+
+    <!-- Ánh sáng mặt trời -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Track surface với texture từ ảnh track_test.png -->
+    <include>
+      <uri>model://track</uri>
+      <pose>0 0 0 0 0 1.5708</pose>
+    </include>
+
+    <!-- Physics settings -->
+    <physics name="default_physics" default="true" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+  </world>
+</sdf>
