@@ -66,6 +66,10 @@ class NMPCNode(Node):
         self.declare_parameter('kappa_speed_factor', 8.0)
         self.declare_parameter('v_min_curve', 0.25)
 
+        # κ EMA smoothing (0 = no smoothing, 1 = freeze). Per-stage on κ(s_j)
+        # với s_j = j·s_max/N (arc-length uniform, v-independent).
+        self.declare_parameter('kappa_ema_alpha', 0.7)
+
         # EKF
         self.declare_parameter('ekf_timeout', 1.0)
 
@@ -103,6 +107,7 @@ class NMPCNode(Node):
         self.KAPPA_MAX  = self.get_parameter('kappa_max').value
         self.KAPPA_FACTOR    = self.get_parameter('kappa_speed_factor').value
         self.V_MIN_CURVE     = self.get_parameter('v_min_curve').value
+        self.KAPPA_EMA_ALPHA = self.get_parameter('kappa_ema_alpha').value
         self.EKF_TIMEOUT     = self.get_parameter('ekf_timeout').value
         solver_build_dir     = self.get_parameter('solver_build_dir').value
         self.TARGET_V        = self.get_parameter('target_v').value
@@ -128,6 +133,11 @@ class NMPCNode(Node):
 
         # ── State [s, n, alpha, v, D, delta] ───────────────────────────
         self.current_state = np.zeros(6)
+
+        # Per-stage κ EMA state — lấy mẫu κ(s_j) trên cubic tại các điểm
+        # arc-length uniform (v-independent), nên stage j giữa các frames
+        # ứng với cùng 1 điểm vật lý → EMA có ý nghĩa + giữ preview 1s.
+        self.kappa_horizon_smooth = None
 
         # ── Lane perception data ───────────────────────────────────────
         self.lane_coeffs  = None   # [a, b, c, d] cubic polynomial
@@ -208,62 +218,57 @@ class NMPCNode(Node):
                 self.current_state[3] = self.ekf_v
             self.kappa_raw = 0.0
             self.lane_coeffs = None
+            self.kappa_horizon_smooth = None
             self._warm_start()
             self.get_logger().info(
                 'car_enabled: False→True, reset 6-state + solver')
 
-    # ── κ(s) interpolation per horizon stage ─────────────────────────────
+    # ── κ(s_j) per-stage, arc-length uniform ─────────────────────────────
     def _compute_kappa_horizon(self) -> np.ndarray:
         """
-        Tính κ(s_j) cho N+1 stages từ cubic polynomial đã publish.
+        Per-stage κ(s_j) với s_j = j · s_max / N (arc-length uniform).
 
-        s_j = v * j * dt  (predicted arc-length position at stage j)
-        κ(s) = x_c''(s) / (1 + x_c'(s)²)^(3/2)
+        Khác bản cũ: s_j không còn phụ thuộc v (`v·j·dt`) nên stage j giữa
+        các frames ứng với cùng 1 điểm vật lý trên cubic → EMA per-stage
+        hợp lệ. Đồng bộ với `s_horizon` dùng cho yref (line bên dưới).
 
-        Với cubic x_c(s) = a·s³ + b·s² + c·s + d:
-          x_c'(s)  = 3a·s² + 2b·s + c
-          x_c''(s) = 6a·s + 2b
+        κ(s) = x_c''(s) / (1 + x_c'(s)²)^(3/2) với cubic x_c(s)=a·s³+b·s²+c·s+d.
         """
         if self.lane_coeffs is None:
             return np.zeros(self.N + 1)
 
-        a, b, c, d = self.lane_coeffs
-        dt = self.TF / self.N
-        v = max(self.current_state[3], 0.1)  # avoid zero speed
+        a, b, c, _d = self.lane_coeffs
+        s_max = max(float(self.lane_s_max), 0.05)
+        ds = s_max / self.N
         kappa_arr = np.zeros(self.N + 1)
 
         for j in range(self.N + 1):
-            s_j = min(v * j * dt, self.lane_s_max)
-            xp  = 3*a*s_j**2 + 2*b*s_j + c    # x_c'(s)
-            xpp = 6*a*s_j + 2*b                 # x_c''(s)
+            s_j = j * ds
+            xp  = 3*a*s_j**2 + 2*b*s_j + c
+            xpp = 6*a*s_j + 2*b
             denom = (1 + xp**2)**1.5
             if abs(denom) > 1e-8:
                 kappa_arr[j] = np.clip(
                     xpp / denom, -self.KAPPA_MAX, self.KAPPA_MAX)
 
-        return kappa_arr
+        a_ema = self.KAPPA_EMA_ALPHA
+        if self.kappa_horizon_smooth is None:
+            self.kappa_horizon_smooth = kappa_arr.copy()
+        else:
+            self.kappa_horizon_smooth = (
+                a_ema * self.kappa_horizon_smooth + (1.0 - a_ema) * kappa_arr)
 
-    # ── Adaptive velocity command ─────────────────────────────────────────
-    def _adaptive_velocity(self, kappa_abs: float, D_cmd: float) -> float:
+        return self.kappa_horizon_smooth.copy()
+
+    # ── Adaptive v_ref per horizon stage ─────────────────────────────────
+    def _compute_v_ref_horizon(self, kappa_arr: np.ndarray) -> np.ndarray:
         """
-        Compute velocity command based on curvature-adaptive reference.
-
-        In Phi's Gazebo sim, /velocity is a direct setpoint (not motor
-        command). NMPC handles steering δ; velocity is set adaptively:
-          - Straight: v ≈ target_v
-          - Curve:    v reduced proportional to |κ|
-          - D < 0:    braking → v = 0
+        v_ref(κ_j) = target_v / (1 + kappa_factor·|κ_j|), clipped to
+        [v_min_curve, v_max]. Cho phép solver "nhìn trước" khúc cua và
+        giảm tốc sớm thông qua optimizing D.
         """
-        if D_cmd < 0.0:
-            return 0.0
-
-        v_base = self.TARGET_V
-        v_adapted = v_base / (1.0 + self.KAPPA_FACTOR * kappa_abs)
-        v_cmd = float(np.clip(v_adapted, self.V_MIN_CURVE, self.V_MAX))
-
-        # Scale by D to allow NMPC to modulate speed
-        v_cmd *= float(np.clip(D_cmd, 0.0, 1.0))
-        return max(v_cmd, self.V_MIN)
+        v_ref = self.TARGET_V / (1.0 + self.KAPPA_FACTOR * np.abs(kappa_arr))
+        return np.clip(v_ref, self.V_MIN_CURVE, self.V_MAX)
 
     # ── Control loop ─────────────────────────────────────────────────────
     def control_cb(self):
@@ -301,8 +306,9 @@ class NMPCNode(Node):
         self.solver.set(0, "lbx", x0)
         self.solver.set(0, "ubx", x0)
 
-        # ── κ interpolation per-stage ─────────────────────────────────
+        # ── κ interpolation + adaptive v_ref per-stage ────────────────
         kappa_horizon = self._compute_kappa_horizon()
+        v_ref_horizon = self._compute_v_ref_horizon(kappa_horizon)
 
         # ── Build s reference trajectory (relative, 0 → s_max) ────────
         s_max = float(self.lane_s_max) if self.lane_s_max > 0.05 else 0.5
@@ -315,7 +321,7 @@ class NMPCNode(Node):
             #         derD_ref, dDelta_ref]
             yref = np.array([
                 s_horizon[j], 0.0, 0.0,
-                self.TARGET_V, 0.0, 0.0, 0.0, 0.0])
+                v_ref_horizon[j], 0.0, 0.0, 0.0, 0.0])
             self.solver.set(j, "yref", yref)
 
         # Terminal stage
@@ -323,7 +329,7 @@ class NMPCNode(Node):
                         np.array([kappa_horizon[self.N]]))
         yref_N = np.array([
             s_horizon[-1], 0.0, 0.0,
-            self.TARGET_V, 0.0, 0.0])
+            v_ref_horizon[self.N], 0.0, 0.0])
         self.solver.set(self.N, "yref", yref_N)
 
         # ── Solve ─────────────────────────────────────────────────────
@@ -339,17 +345,17 @@ class NMPCNode(Node):
                 0.0)
             return
 
-        # ── Extract control ───────────────────────────────────────────
+        # ── Extract control from solver's stage-1 prediction ──────────
         x1 = self.solver.get(1, "x")
         D_cmd     = float(x1[4])
         delta_cmd = float(x1[5])
+        # Trust solver's v: output its predicted velocity at stage 1
+        # (clip to non-negative — vehicle_controller treats /velocity
+        # as a signed setpoint and we don't want reverse for lane follow)
+        v_cmd = float(np.clip(x1[3], 0.0, self.V_MAX))
 
         # Update current_state with solver prediction for warm-start
         self.current_state = x1.copy()
-
-        # Adaptive velocity (no D→v force model — direct setpoint)
-        kappa_abs = abs(kappa_horizon[0])
-        v_cmd = self._adaptive_velocity(kappa_abs, D_cmd)
 
         self._publish(delta_cmd, v_cmd)
 
@@ -363,6 +369,7 @@ class NMPCNode(Node):
             f'D={D_cmd:.3f} '
             f'δ={np.degrees(delta_cmd):.1f}° '
             f'κ₀={kappa_horizon[0]:.4f} '
+            f'vref₀={v_ref_horizon[0]:.2f} '
             f'v→{v_cmd:.2f} '
             f'{t_ms:.1f}ms '
             f'st={status}')

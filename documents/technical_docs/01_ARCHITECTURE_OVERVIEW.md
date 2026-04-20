@@ -1,40 +1,134 @@
-# 01. Hệ thống Xe Tự Hành: Kiến trúc Tổng thể
+# 01. Kiến trúc Tổng thể Hệ thống Xe RC Tự hành
 
-Tài liệu này mô tả sơ đồ khối và luồng dữ liệu của hệ thống xe tự hành sử dụng NMPC 6 trạng thái.
+Tài liệu mô tả sơ đồ khối và luồng dữ liệu của hệ thống sử dụng NMPC 6 trạng
+thái dựa trên mô hình Spatial Bicycle (Kloeser 2020 mở rộng).
+
+---
 
 ## 1. Sơ đồ khối (High-Level Architecture)
 
-Hệ thống được thiết kế theo mô hình Modular Pipeline truyền thống:
+Hệ thống theo mô hình Modular Pipeline truyền thống — mỗi khối là một
+ROS 2 node độc lập:
 
 ```
-[ Camera ] ──▶ [ Perception ] ──▶ [ EKF ] ──▶ [ NMPC ] ──▶ [ Control ] ──▶ [ Sim/Hardware ]
-    ▲               │              │          │              │
-    └───────────────┴──────────────┴──────────┴──────────────┘
-                         Feedback & State Estimation
+[ Camera ]                                             [ Sim / Hardware ]
+    │                                                         ▲
+    ▼                                                         │
+[ perception_node ]──┐                                        │
+                     │                                        │
+                     ▼                                        │
+                 /perception/lane_state                       │
+                     │                                        │
+           ┌─────────┼──────────┐                             │
+           ▼         ▼          ▼                             │
+      [ ekf_node ]  [ mpc_node ]   [ reset_node ]             │
+           │              │              │                    │
+           ▼              │              ▼                    │
+  /ekf/vehicle_state ─────┤        /car_enabled               │
+                          ▼                                    │
+              /steering_angle, /velocity ───────►[ vehicle_controller (C++) ]
 ```
+
+- Tất cả nodes chạy trên ROS 2 Humble, DOMAIN_ID=42.
+- Tốc độ: camera 30 Hz, EKF 100 Hz, NMPC 20 Hz.
+- Trong sim, `vehicle_controller` là plugin C++ trong Gazebo Fortress.
+- Trong hardware, `vehicle_controller` thay bằng firmware Nucleo F411RE.
+
+---
 
 ## 2. Các Node ROS 2 chính
 
-| Node | Vai trò | Input | Output |
-| :--- | :--- | :--- | :--- |
-| `perception_node` | Nhận diện vạch kẻ đường | `/camera/image` | `/perception/lane_state` |
-| `ekf_node` | Ước lượng trạng thái mịn | `lane_state`, `odom` | `/ekf/vehicle_state` |
-| `mpc_node` | Bộ điều khiển tối ưu | `lane_state`, `ekf_state` | `/steering_angle`, `/velocity` |
-| `visualizer_node` | Hiển thị debug | Đa chủ đề | Debug Image/Markers |
-| `vehicle_controller` | Bridge tới Gazebo/Xe thật | `/steering_angle`, `/velocity` | Joint commands |
+| Node | Vai trò | Input chính | Output chính |
+|------|---------|-------------|--------------|
+| `perception_node` | Nhận diện làn đường | `/camera/image_raw` | `/perception/lane_state` |
+| `ekf_node` | Ước lượng trạng thái mịn | lane_state, IMU, joint_states | `/ekf/vehicle_state` |
+| `mpc_node` | NMPC 6-state @ 20 Hz | lane_state, ekf_state, car_enabled | `/steering_angle`, `/velocity` |
+| `reset_node` | Khởi động/dừng/reset xe | keyboard / service / auto | `/car_enabled`, teleport xe |
+| `visualizer_node` | Debug 4-panel | camera | debug images |
+| `vehicle_controller` | Bridge sim ↔ NMPC | /steering_angle, /velocity | Joint commands |
+
+---
 
 ## 3. Luồng dữ liệu (Data Flow)
 
-1.  **Sensing:** Camera cung cấp hình ảnh RAW.
-2.  **Perception:** Chuyển đổi sang Bird's Eye View (BEV), tìm Lane và fit Cubic Polynomial. Kết quả cung cấp `e_y` (n), `e_psi` (alpha) và curvature `kappa`.
-3.  **State Estimation (EKF):** Kết hợp perception với Odometry để lọc nhiễu và cung cấp vận tốc `v`, vị trí ngang `n` và góc heading `alpha` ổn định.
-4.  **Planning & Control (NMPC):** Sử dụng mô hình Bicycle 6 trạng thái để dự đoán quỹ đạo tối ưu trong tương lai và xuất lệnh điều khiển tới Actuators.
+1. **Sensing** — Camera (30 Hz), IMU (~77 Hz), joint_states (100 Hz).
+2. **Perception** — BEV warp + adaptive threshold + sliding window + cubic
+   arc-length polynomial. Output `e_y`, `e_psi`, `κ`, hệ số đa thức.
+3. **State Estimation (EKF)** — fuse perception (n, α) + IMU (α̇) + wheel
+   encoders (v). Output state mượt @ 100 Hz.
+4. **Control (NMPC 6-state)** — dùng mô hình bicycle spatial 6 trạng thái
+   để dự đoán quỹ đạo tối ưu 1 giây phía trước (N=20 stages × dt=50 ms)
+   rồi xuất `δ` và `v` tại stage 1.
+5. **Actuation** — `vehicle_controller` (sim) hoặc Nucleo firmware (HW)
+   chuyển `/steering_angle` + `/velocity` thành PWM servo/ESC.
+
+---
 
 ## 4. Hệ tọa độ (Coordinate Frames)
 
-Hệ thống sử dụng hệ tọa độ tham số đường (Path-parametric):
--   **s:** Quãng đường dọc theo đường tham chiếu (Arclength).
--   **n:** Khoảng cách sai lệch ngang (Lateral deviation/CTE).
--   **alpha:** Sai lệch góc hướng (Heading error).
+Hệ thống sử dụng hệ toạ độ **tham số đường (Path-parametric)** thay vì
+XY toàn cục:
 
-Mô hình này giúp việc bám làn (Lane Following) trở nên tự nhiên hơn so với hệ tọa độ XY toàn cục.
+| Symbol | Ý nghĩa | Đơn vị |
+|--------|---------|--------|
+| s | Arc-length dọc đường tham chiếu | m |
+| n | Sai lệch ngang (Cross-Track Error) | m |
+| α | Sai lệch góc hướng (Heading Error) | rad |
+| v | Vận tốc dọc xe | m/s |
+| D | Duty cycle throttle | [-1, 1] |
+| δ | Góc lái | rad |
+
+Mô hình path-parametric giúp bài toán bám làn (lane following) trở nên tự
+nhiên — `n=0, α=0` chính là "đi giữa lane, thẳng hướng lane" — và tránh
+singularity tại các khúc cua khi công thức hóa chuẩn.
+
+---
+
+## 5. Phần mềm và Công cụ
+
+| Thành phần | Version | Ghi chú |
+|------------|---------|---------|
+| ROS 2 | Humble | native laptop, Docker Pi |
+| Gazebo | Ignition 6 / Fortress | lệnh `ign`, msg `ignition.msgs.*` |
+| acados | v0.3.5 | `~/acados/`, build từ source |
+| tera_renderer | v0.2.0 | Rust, required bởi acados |
+| Python | 3.10 | |
+| OpenCV | 4.x | perception pipeline |
+| NumPy / SciPy | — | fit đa thức, EKF |
+
+---
+
+## 6. Workspace layout
+
+```
+ros2_ws/
+├── CLAUDE.md                 ← entry AI
+├── PROJECT_STATE.md          ← technical index
+├── src/
+│   ├── perception_pkg/
+│   ├── ekf_pkg/
+│   ├── mpc_pkg/              ← NMPC 6-state + acados
+│   ├── lane_msgs/
+│   └── gazebo_ackermann_steering_vehicle/
+├── nmpc_build_6state/        ← solver cache (xóa để rebuild)
+├── data/bags/                ← rosbag + analyze scripts
+└── documents/
+    ├── plan/                 ← phase plans
+    ├── state/                ← technical state chi tiết
+    └── technical_docs/       ← tài liệu này
+```
+
+---
+
+## 7. Vì sao chia thành modules
+
+- **Testability:** mỗi node test độc lập bằng `ros2 topic pub` giả sensor.
+- **Swap-ability:** đổi perception (BEV → YOLO, chẳng hạn) không ảnh hưởng
+  NMPC vì interface là `LaneState` message.
+- **Portability sim → hardware:** chỉ `vehicle_controller` đổi backend.
+- **Parameter-driven:** mọi tune nằm trong yaml, không hardcode.
+
+Các tài liệu tiếp theo:
+- [02_PERCEPTION_AND_EKF.md](02_PERCEPTION_AND_EKF.md) — lane detection + EKF.
+- [03_NMPC_CONTROL_LOGIC.md](03_NMPC_CONTROL_LOGIC.md) — 6-state NMPC.
+- [04_WORKFLOW_AND_TUNING.md](04_WORKFLOW_AND_TUNING.md) — vận hành + tuning.

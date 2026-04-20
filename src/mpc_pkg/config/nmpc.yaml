@@ -32,8 +32,13 @@ nmpc_node:
     alat_max: 4.0
     along_max: 4.0
 
-    # κ safety
-    kappa_max: 2.0
+    # κ safety — Map 3 DLC không có cua gắt thật sự, clamp chặt để
+    # chặn perception outlier (bag 7 đo |κ|max=0.97, thực tế ~0.3)
+    kappa_max: 0.8
+
+    # κ EMA smoothing — Map 3 perception noisy ở đoạn cuối DLC,
+    # cần smoothing mạnh hơn map đơn giản.
+    kappa_ema_alpha: 0.7
 
     # Speed adaptation
     kappa_speed_factor: 2.0

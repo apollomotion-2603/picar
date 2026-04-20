@@ -35,6 +35,9 @@ nmpc_node:
     # κ safety
     kappa_max: 2.0
 
+    # κ EMA smoothing — map oval mượt, smooth nhẹ
+    kappa_ema_alpha: 0.5
+
     # Speed adaptation — Map 1 oval: ít cua → giảm nhẹ factor
     kappa_speed_factor: 2.0
     v_min_curve: 0.3

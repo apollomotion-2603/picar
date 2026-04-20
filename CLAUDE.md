@@ -1,351 +1,168 @@
 # CLAUDE.md — RC Car Autonomous Driving
-# apollomotion (Phi) & Nhã | ĐH GTVT TP.HCM | 2026
-# Vai trò file này: Plan + Context + Conventions cho AI
-# Xem PROJECT_STATE.md cho technical details (code, commands, params)
+apollomotion (Phi) & Nhã | ĐH GTVT TP.HCM | Updated 2026-04-19
+
+Vai trò file này: entry point cho AI — project identity, roadmap, conventions.
+Chi tiết kỹ thuật (params, commands, issues) ở `PROJECT_STATE.md` và `documents/state/`.
+Chi tiết phase ở `documents/plan/`.
 
 ---
 
 ## 1. PROJECT IDENTITY
 
-**Mục tiêu:** Xe RC tự hành 1/16 scale — luận văn tốt nghiệp, hướng tới sản phẩm thương mại
-cho doanh nghiệp, đại học, sinh viên mới.
+**Mục tiêu:** Xe RC 1/16 scale tự hành — luận văn tốt nghiệp, hướng tới sản phẩm
+thương mại cho doanh nghiệp, đại học, sinh viên mới.
 
 **Phân công:**
+
 | Phi (apollomotion) | Nhã |
 |---|---|
-| Perception pipeline | NMPC optimization |
-| EKF state estimation | Velocity control |
+| Perception pipeline | NMPC model + solver |
+| EKF state estimation | Velocity / throttle control |
 | SLAM + Localization | Nucleo firmware |
 | Nav2 integration | Constraint tuning |
 | GUI Dashboard | Hardware motor control |
 | Luận văn (chính) | Đóng góp chương 3, 4 |
 
-**Nguyên tắc thiết kế xuyên suốt:**
-- **"Build once, reuse forever"** — hardware modular (JST connector), software parameter-driven
-- **"Make it work first, optimize later"**
-- Thay track/môi trường → chỉ chỉnh `perception.yaml` (BEV corners)
-- Thay xe → chỉnh `robot.yaml`
-- Sim và hardware phát triển song song
+**Nguyên tắc thiết kế:**
+- *Build once, reuse forever* — hardware modular (JST), software parameter-driven.
+- *Make it work first, optimize later.*
+- Thay track → chỉnh `perception.yaml` (BEV corners).
+- Thay xe → chỉnh `robot.yaml`.
+- Sim và hardware phát triển song song.
 
-**Deadlines:**
-- **April 18, 2026** — Rough product: sim + hardware + draft report
-- **April 25, 2026** — Final submission
+**Deadlines (CRITICAL — quá hạn rough, sắp đến final):**
+- ~~April 18, 2026 — Rough product~~ → **QUÁ HẠN** (hôm nay 2026-04-19).
+- **April 25, 2026 — Final submission** (còn 6 ngày).
 
 ---
 
-## 2. ROADMAP TỔNG THỂ (12 tuần)
+## 2. ROADMAP (12 tuần)
 
 | Tuần | Phase | Mục tiêu | Status |
 |------|-------|-----------|--------|
-| 1–2 | **Phase 1:** Simulation | Perception + NMPC + EKF trong Gazebo | ✅ XONG |
-| 3–4 | **Phase 1.5a:** Sim tracks + HW prep | 3 track sim + camera Pi deploy | 🔄 ĐANG LÀM |
-| 5–6 | **Phase 1.5b:** Hardware lane following | Xe bám lane track thật 0.3 m/s | 📅 KẾ HOẠCH |
-| 7–8 | **Phase 2:** SLAM | Visual odometry + lane-based map | 📅 KẾ HOẠCH |
-| 9–10 | **Phase 3:** Navigation | Nav2 + obstacle avoidance | 📅 KẾ HOẠCH |
-| 11 | **Phase 4:** GUI | Foxglove dashboard | 📅 KẾ HOẠCH |
-| 12 | **Luận văn + Demo** | Video + demo live | 📅 KẾ HOẠCH |
+| 1–4 | Phase 1 — Simulation | Perception + NMPC + EKF trong Gazebo | ✅ DONE |
+| 5–6 | Phase 1.5a — Sim tracks (map 1 + map 3) | 2 map sim đạt yêu cầu | ✅ DONE |
+| 7–8 | Phase 1.5b — Hardware lane following | Xe bám lane track thật 0.3 m/s | 🔄 NOW |
+| — | Thesis writing (song song) | Chương 2-5 | 🔄 NOW |
+| 9–10 | Phase 2 — SLAM | Visual odometry + lane-based map | 📅 scope giảm |
+| 11 | Phase 3 — Navigation | Nav2 + obstacle avoidance | 📅 scope giảm |
+| 12 | Phase 4 — GUI + Demo | Foxglove dashboard + luận văn | 📅 |
+
+Chi tiết → [documents/plan/01_phase_current.md](documents/plan/01_phase_current.md),
+[02_phase_future.md](documents/plan/02_phase_future.md).
 
 ---
 
-## 3. CURRENT FOCUS — Phase 1.5a (Tuần 3–4)
+## 3. CURRENT FOCUS — Phase 1.5b (Hardware) + Thesis
 
-**Mục tiêu tuần này:** Hoàn thiện simulation + chuẩn bị hardware deploy
+**Quyết định 2026-04-19:** Sim đủ tốt cho demo → **chuyển sang deploy HW +
+viết thesis**. Không tune thêm sim, ROI thấp so với deadline 6 ngày.
 
-### Sim tracks checklist
-- [x] Track 1: Oval đơn giản (`lane_track.sdf`, 9×2m) — xe bám lane mượt ✅
-- [ ] Track 2: `track_test.sdf` (6×6m, chicane + S-curve) — test full pipeline
-- [x] Track 3: Chuyển làn kép (`lane_change.sdf`, 8×2m) — đã test thành công NMPC ✅
-- [ ] Track 4: Track tĩnh vật cản (`obstacle_track.sdf`) — thiết kế xong SDF, chờ test chướng ngại vật
+### Sim — closed (baseline cho thesis)
+- [x] Map 1 `lane_track.sdf` (9×2m oval) — bám lane mượt ✅
+- [x] Map 3 `lane_change.sdf` (8×2m DLC) — đổi làn thành công ✅
+  - Baseline: `bag_map_test_11` (`|n|max=72mm`, `|κ|max=0.76`, δ max=15°).
+  - Fix cuối cùng: per-stage EMA với arc-length uniform `s_j = j·s_max/N`
+    (v-independent) — giữ preview 1s + stable.
+- [~] Map 2 `track_test.sdf` — drop scope, không đủ thời gian.
+- [~] Map 4 `obstacle_track.sdf` — drop scope, cần Object Detection.
 
-### Hardware prep checklist
-- [ ] Giải quyết Pi Camera 3 driver (`Unable to acquire CFE instance`)
-- [ ] Calibrate camera intrinsics (checkerboard)
-- [ ] Test stream `/camera/image_raw` từ Pi về laptop
+### Hardware deploy (blockers theo thứ tự)
+- [ ] **#1 Pi Camera 3 CFE driver** (`Unable to acquire CFE instance`) —
+  thử RPi OS 64-bit + Docker; fallback USB webcam nếu vẫn fail 1 ngày.
+- [ ] **#2 Camera intrinsic calibration** (checkerboard).
+- [ ] **#3 BEV recalibration** cho camera thật → `perception.yaml`
+  (+ sync `visualizer_node.py:17-18` hardcoded).
+- [ ] **#4 Nucleo serial parser** BNO055 → `/imu/data`.
+- [ ] **#5 Test lane straight 0.3 m/s** trên track giấy A0 + băng keo.
 
-### Blockers hiện tại
-- Pi Camera 3 CFE driver conflict — chưa resolve
-- Track 2 spawn position cần verify sau khi test
-- ~~Xe còn dao động lái trái-phải khi chạy thẳng~~ → **ĐÃ FIX** (xem mục Sim smoothing fixes)
-
----
-
-## 4. PHASE 1 — Simulation ✅ XONG
-
-### Pipeline hoàn chỉnh (closed loop)
-```
-Camera (30Hz) → perception_node → /perception/lane_state
-                                         ↓
-IMU (100Hz) ──→ ekf_node ────────→ /ekf/vehicle_state
-Joint States ──→    ↑                    ↓
-                                   mpc_node (NMPC)
-                                    ↓           ↓
-                            /steering_angle  /velocity
-                                         ↓
-                              vehicle_controller (C++)
-                                         ↓
-                                   Gazebo physics
-```
-
-### Kết quả đạt được
-- [x] Perception: BEV → Sliding Window → Cubic poly + arc-length @ 30Hz
-- [x] EKF: Camera + IMU + Wheel encoder, `ekf_healthy=true` @ 100Hz
-- [x] NMPC Kloeser 2020: acados RTI+HPIPM, solve time 1–5ms @ 30Hz
-- [x] Curvature-based adaptive speed: `v_ref = V_MAX / (1 + 8·|κ|)`
-- [x] EKF velocity feedback thay first-order model
-- [x] Reset node: S/X/Q keyboard + `/reset_car` service + auto-reset khi lane lost
-- [x] Full pipeline launch: `sim_full_launch.py` (1 lệnh, 2 terminal)
-- [x] 4-panel debug visualizer: Raw+ROI / BEV / Threshold / Lanes
-
-### NMPC key params
-| Tham số | Giá trị | Ghi chú |
-|---------|---------|---------|
-| V_MAX | 1.5 m/s | Sim; hardware giai đoạn 1: 0.3 m/s |
-| N (horizon) | 30 steps | Tf=1.0s, dt=33ms |
-| w_n (lateral) | 200.0 | Penalize lane offset |
-| w_alpha (heading) | 100.0 | Penalize heading error |
-| w_delta (steering) | **50.0** (map1) / **80.0** (map3) | Per-map: map1 mềm hơn, map3 suppress DLC oscillation |
-| kappa_max | 2.0 | Clamp kappa trong horizon — ngăn singularity |
-| kappa_factor | 8.0 | Speed reduction tại cua |
-| kappa_smooth_alpha | **0.30** (map1) / **0.70** (map3) | EMA kappa: map1 nhanh, map3 lọc nhiều |
-| Horizon kappa | constant = `kappa_smooth` | Không còn re-derive từ cubic polynomial |
-| Solve time | 1–5ms | Margin 28ms so với 33ms period ✅ |
-
-### Sim smoothing fixes (đã áp dụng)
-- [x] Joint damping giảm: wheel joints `damping=0.001`, steering joints `damping=0.01`
-- [x] `body_density` giảm từ 7850 (thép) → 925 (ABS plastic) → mass ≈ 2.5 kg đúng
-- [x] Rear wheel mass fix: từ hardcode 2kg → dùng density formula (~0.09 kg/wheel)
-- [x] mpc_node: dùng EKF `n`/`alpha` (filtered) thay raw perception cho NMPC initial state → giảm dao động lái
-- [x] `w_delta` tăng 10 → 50 → 80 (DLC oscillation suppression; cần `rm -rf nmpc_build/`)
-- [x] reset_node: fix teleport dùng `ign service` + `ignition.msgs.Pose`
-- [x] reset_node: fix Q reset — protobuf format `position: {x:...}` (có `:`) + delay 0.5s trước teleport để physics settle
-- [x] **Kappa EMA đúng**: `0.7*old + 0.3*new` trong cả `ekf_node` lẫn `mpc_node` (fix lại từ 0.2/0.8 sai)
-- [x] **Polynomial bowing fix**: clip `us_m ≤ s_max_m`, near-field exponential weighting, kappa từ quadratic fit
-- [x] **kappa_max=3.0**: clamp kappa_pred trong MPC horizon — ngăn singularity khi perception spike
-- [x] **diagnostic_kappa_zero**: flag trong nmpc.yaml để bypass kappa từ perception khi debug
-- [x] **Fix #1 — zip ghép sai Y**: `sliding_window()` trả thêm `center_pts` chỉ từ windows mà CẢ HAI lane detect cùng Y. Trước đó `zip(left_pts, right_pts)` ghép theo index → sai khi window miss không đều giữa 2 bên
-- [x] **Fix #2 — Thống nhất kappa source**: MPC horizon dùng `kappa_smooth` (constant, từ quadratic fit + EMA) thay vì re-derive từ cubic polynomial coefficients. Tránh mâu thuẫn giữa 2 kappa source khác nhau
-- [x] **Fix #3 — Bỏ EMA trên polynomial coefficients**: Xóa hoàn toàn `poly_a/b/c/d` EMA trong mpc_node — trộn coefficients từ frame khác nhau là vô nghĩa toán học (gốc tọa độ dịch khi xe chạy). Xóa `poly_ema_alpha` param từ cả 2 yaml
-- [x] **Fix startup kappa bias**: Reset `kappa_smooth=0` khi `car_enabled` chuyển False→True. Perception tích lũy kappa bias (-0.12 trên map 1 đường thẳng) khi xe đứng yên → MPC start với kappa sai → đánh lái gắt ngay khi khởi động
+### Thesis (song song — viết mỗi ngày)
+- Chương 2 Perception — dựa `documents/technical_docs/02_PERCEPTION_AND_EKF.md`.
+- Chương 3 EKF — ibid.
+- Chương 4 NMPC (Nhã chính) — `03_NMPC_CONTROL_LOGIC.md` + bag 11 data.
+- Chương 5 Thí nghiệm — bag 11 (sim DLC) + video HW (khi có).
 
 ---
 
-## 5. PHASE 1.5a — Sim Tracks + HW Prep 🔄 ĐANG LÀM
-
-### Track 2 — `track_test.sdf` (6×6m, chicane + S-curve)
-- Texture: `track_test.png` (2048×2048px)
-- Spawn đúng: `x=0.0, y=-2.666, Y=0.0` (bottom straight centerline)
-- Launch: `ros2 launch gazebo_ackermann_steering_vehicle sim_full_launch.py map:=2`
-- Reset node: `ros2 run ekf_pkg reset_node --ros-args -p map_id:=2`
-- **TODO:** Test full pipeline, tune nếu cần
-
-### Track 3 — `lane_change.sdf` (Double lane change) ✅XONG
-- Đã test thành công xe có khả năng tự bám và chuyển làn.
-- Tọa độ spawn và reset: `x=0.54, y=0.75, Y=0.0` (giữa làn phải).
-
-### Track 4 — `obstacle_track.sdf` (Có vật cản tĩnh)
-- Đã tạo xong SDF từ map 1 và chèn các static box model.
-- Chờ tích hợp Object Detection để NMPC tự né.
-
-### Hardware prep
-- **Pi Camera 3:** Resolve CFE issue → thử `media-ctl --print-topology`
-- **Calibration:** Checkerboard intrinsics → update `perception.yaml` BEV SRC/DST
-- **Nucleo serial parser:** Viết node parse BNO055 → `/imu/data`
-
----
-
-## 6. PHASE 1.5b — Hardware Lane Following 📅 KẾ HOẠCH
-
-**Mục tiêu:** Xe bám lane track thật ở 0.3 m/s. Chỉ điều khiển góc lái — tốc độ cố định.
-
-### Pipeline deploy (không cần EKF giai đoạn đầu)
-```
-Pi Camera (CSI)
-  → perception_node (Pi, Docker ROS2)
-  → /camera/image_raw + /perception/lane_state
-  → [ROS2 network, ROS_DOMAIN_ID=42]
-  → mpc_node (laptop)
-  → /steering_angle, /velocity
-  → [ROS2 network]
-  → Nucleo F411RE (Pi, USB /dev/ttyACM0)
-  → Servo (steering) + ESC (drive)
-```
-
-### Track thật — thông số
-| Tham số | Giá trị |
-|---------|---------|
-| Nền | Giấy trắng A0 (4–8 tờ ghép) |
-| Lane marking | Băng keo đen, rộng 2–3cm |
-| Lane width | 50cm (2 dải song song) |
-| Kích thước tối đa | ~3.4m × 2.4m (8 tờ A0) |
-
-### Hardware checklist
-- [ ] Giải quyết Pi Camera 3 driver
-- [ ] Calibrate camera intrinsics (checkerboard)
-- [ ] Recalibrate BEV homography SRC/DST → update `perception.yaml`
-- [ ] Test perception node trên Pi, stream `/camera/image_raw` về laptop
-- [ ] Tune AdaptiveThreshold cho băng keo đen trên nền trắng
-- [ ] Verify NMPC nhận `/perception/lane_state` từ Pi qua network
-- [ ] Test 0.3 m/s trên đường thẳng
-- [ ] Test cua nhẹ sau khi đường thẳng ổn định
-- [ ] Record video milestone
-
----
-
-## 7. PHASE 2 — SLAM & Localization 📅 Tuần 7–8
-
-**Mục tiêu:** Xe build map realtime từ camera, biết vị trí của mình trên map.
-
-**Approach:**
-- Visual Odometry: estimate motion giữa các frame liên tiếp
-- Lane Graph Map: graph của lane centerline (nodes + edges), lưu JSON
-- Particle Filter Localization: localize xe trên lane graph
-
-**Lý do:** Môi trường băng keo đen / nền trắng = contrast cao, lane geometry rõ ràng
-→ không cần feature-based SLAM phức tạp.
-
-### Sim checklist
-- [ ] Ground truth odometry từ Gazebo để validate VO
-- [ ] Implement visual odometry node
-- [ ] Build lane graph từ perception output
-- [ ] Implement particle filter localization
-- [ ] Visualize map + xe position trong RViz/Foxglove
-
-### Hardware checklist
-- [ ] Test visual odometry trên Pi Camera 3 thật
-- [ ] Build map track thật 1 và 2
-- [ ] Validate localization accuracy
-- [ ] Record video: xe build map realtime
-
----
-
-## 8. PHASE 3 — Navigation & Obstacle Avoidance 📅 Tuần 9–10
-
-**Mục tiêu:** Xe tự navigate từ A → B, tránh vật cản. Full autonomy.
-
-### Stack kỹ thuật
-- **ROS2 Nav2:** `map_server` + `amcl` + `bt_navigator`
-- **NMPC làm local controller** (thay DWB mặc định của Nav2)
-- **Obstacle detection:** camera-based (băng keo hoặc object đặt trên track)
-
-### Interface Nav2 → NMPC
-```
-Nav2 → /cmd_vel (linear.x, angular.z)
-     → convert → NMPC reference trajectory
-     → NMPC → /steering_angle, /velocity
-```
-
-### Checklist
-- [ ] Thêm obstacle model vào `track_test.sdf`
-- [ ] Test Nav2 với lane map từ Phase 2
-- [ ] Integrate NMPC làm Nav2 local controller
-- [ ] Test obstacle avoidance sim + hardware
-- [ ] Record video: xe tự navigate + tránh vật cản
-
----
-
-## 9. PHASE 4 — GUI Dashboard 📅 Tuần 11
-
-**Mục tiêu:** Dashboard cho non-technical audience — không cần hiểu ROS2 để vận hành xe.
-
-### Stack
-- **Primary:** Foxglove Studio + custom panels
-- **Alternative:** `rosbridge_suite` + React web app (chạy trên browser bất kỳ)
-
-### Features
-- Camera feed realtime
-- Map visualization + vị trí xe
-- Vehicle status: tốc độ, góc lái, mode (manual/auto)
-- Mission control: set goal, start/stop, reset xe
-- Alert system: lane lost, obstacle detected, EKF unhealthy
-- Parameter tuning panel: V_MAX, weights (nice-to-have)
-
----
-
-## 10. HARDWARE ARCHITECTURE
+## 4. HARDWARE OVERVIEW
 
 ```
 LiPo 3S
-├── 5V reg ──→ Raspberry Pi 5 (phibui@picar, 192.168.1.23)
-│             ├── Pi Camera 3 Wide (IMX708, CSI) → /camera/image_raw
-│             └── USB → Nucleo F411RE (/dev/ttyACM0)
-│                       ├── BNO055 IMU (I2C) → /imu/data
-│                       ├── Servo PWM → Steering
-│                       └── ESC PWM → Drive motor
-└── 6V reg ──→ Servo (backup power)
+├── 5V → Raspberry Pi 5 (phibui@picar, 192.168.1.23)
+│        ├── Pi Camera 3 Wide (IMX708, CSI) → /camera/image_raw
+│        └── USB → Nucleo F411RE (/dev/ttyACM0)
+│                 ├── BNO055 IMU (I2C) → /imu/data
+│                 ├── Servo PWM → Steering
+│                 └── ESC PWM → Drive motor
+└── 6V → Servo backup
 
-Laptop (apollomotion, 192.168.1.17):
-├── Ubuntu 22.04 LTS
-├── ROS2 Humble native
-├── Ignition Gazebo 6 (Fortress) — dùng lệnh ign, không phải gz
-├── acados v0.3.5 @ ~/acados/
-└── ROS_DOMAIN_ID=42
+Laptop (apollomotion, 192.168.1.17): Ubuntu 22.04, ROS2 Humble,
+Ignition Gazebo 6 Fortress, acados v0.3.5 @ ~/acados/, ROS_DOMAIN_ID=42.
 ```
 
-### Hardware specs xe RC 1/16
-| Parameter | Value |
-|-----------|-------|
-| m | 2.5 kg |
-| lf = lr | 0.11 m |
-| L (wheelbase) | 0.22 m |
-| wheel_radius | 0.04 m |
-| max_steering | 0.6109 rad (≈35°) |
-| lane_width | 0.50 m |
-| V_max sim | 2.0 m/s |
-| V_max hardware (giai đoạn 1) | 0.3 m/s |
+**Xe specs:** m=2.5kg · lf=lr=0.11m · wheel_r=0.04m · δ_max=0.6109rad ·
+lane_width=0.5m · v_max sim=1.5 m/s · v_max HW phase 1=0.3 m/s.
+
+Chi tiết → [documents/plan/03_hardware.md](documents/plan/03_hardware.md).
 
 ---
 
-## 11. RISK & FALLBACK
-
-| Rủi ro | Xác suất | Fallback |
-|--------|----------|----------|
-| Pi Camera 3 driver không ổn định | Cao | USB camera hoặc picamera2 |
-| Visual SLAM drift trên track thật | Trung bình | Pre-built map + AMCL |
-| Nav2 + NMPC integration phức tạp | Trung bình | Nav2 dùng DWB controller |
-| Luận văn không kịp deadline | Cao | Viết song song từ tuần 3 |
-| Hardware mechanical failure | Thấp | Spare parts, JST connector dễ swap |
-| Timeline quá tight | Cao | Phase 4 GUI đơn giản hóa nếu cần |
-
----
-
-## 12. WORKING CONVENTIONS
-
-### File creation
-- Dùng `python3 << 'PYEOF' ... PYEOF` để ghi file (không dùng heredoc `cat << EOF` cho
-  file dài vì escape issue)
-- Với file ngắn < 20 dòng: `cat > file.py << 'EOF'`
+## 5. WORKING CONVENTIONS
 
 ### ROS2
-- Luôn `source install/setup.bash` trước khi chạy lệnh ROS2
-- `ROS_DOMAIN_ID=42` cho tất cả terminals (laptop + Pi)
-- Build sạch khi gặp CMakeCache conflict: `rm -rf build/ install/` rồi rebuild
-- Xóa NMPC solver cache khi thay đổi nmpc.yaml: `rm -rf nmpc_build/`
+- `source install/setup.bash` trước mọi lệnh ROS2.
+- `ROS_DOMAIN_ID=42` cho mọi terminal (laptop + Pi).
+- Build conflict: `rm -rf build/ install/` rồi build lại.
+- **Đổi `nmpc.yaml` hoặc `bicycle_model.py` → PHẢI** `rm -rf nmpc_build_6state/`
+  trước khi chạy lại (solver cache cũ).
 
 ### Code style
-- Tất cả ROS2 nodes phải có timeout check và fallback
-- Log format NMPC: `n=Xmm α=X° v=Xm/s(EKF/model) δ=X° κ=X t=Xms`
-- Không hardcode params trong code — externalize ra yaml
-- `--symlink-install` để edit source trực tiếp không cần rebuild Python nodes
+- Nodes phải có timeout + fallback an toàn (publish 0/0 khi mất sensor).
+- Không hardcode params — externalize ra yaml.
+- `colcon build --symlink-install` để edit Python nodes không cần rebuild.
+- Log NMPC format: `n=Xmm α=X° v=X(src) D=X δ=X° κ₀=X vref₀=X v→X t=Xms st=X`.
+
+### File creation
+- File dài (>20 dòng): `python3 << 'PYEOF' ... PYEOF`.
+- File ngắn: `cat > file.py << 'EOF'`.
 
 ### AI workflow
-- **Claude Web** (claude.ai): brainstorm, debug logic, review, visual tasks (Gazebo screenshot)
-- **Claude Code**: edit file, refactor, tạo file mới — chỉ dùng khi cần truy cập filesystem
-- Không để Claude Code đọc quá nhiều file một lúc — tốn token không cần thiết
+- **Claude Web:** brainstorm, debug, review, visual (Gazebo screenshot).
+- **Claude Code:** edit file, refactor, create file — chỉ khi cần filesystem.
+- Không đọc quá nhiều file một lúc — tốn token.
+
+### Ignition Fortress protobuf (gotcha)
+- Dùng `ign service`, không phải `gz service`.
+- Msg type `ignition.msgs.*`, không phải `gz.msgs.*`.
+- Format text: `position: {x: X y: Y z: Z}` — **phải có `:`** trước nested.
 
 ---
 
-## 13. REFERENCES
+## 6. RISK & FALLBACK
 
-- **Kloeser 2020:** "NMPC for Racing Using a Singularity-Free Path-Parametric Model"
-  - State: `x=[s,n,α,v]`, Control: `u=[delta,v_ref]`
-  - acados RTI + HPIPM solver, validated 1:43 scale RC car @ 50Hz
-
-- **acados v0.3.5:** `~/acados/`, WARNING "Gauss-Newton + EXTERNAL" là bình thường
-- **tera_renderer v0.2.0:** build từ source Rust (required by acados)
-- **ROS2 Humble + Ignition Gazebo 6 (Fortress):** dùng lệnh `ign service` (không phải `gz service`), msg type `ignition.msgs.*` (không phải `gz.msgs.*`)
-  - Protobuf text format: **PHẢI có `:` trước nested message** — `position: {x: X y: Y z: Z}` ← đúng; `position { x: X }` ← SAI (Fortress parse fail)
+| Rủi ro | P | Fallback |
+|--------|---|----------|
+| Pi Camera 3 driver | Cao | USB camera hoặc picamera2 |
+| Visual SLAM drift HW | TB | Pre-built map + AMCL |
+| Nav2+NMPC integrate | TB | Nav2 DWB controller |
+| Luận văn trễ deadline | Cao | Viết song song từ tuần 3 |
+| Timeline cực tight (6 ngày) | Cao | Ưu tiên sim demo + báo cáo; HW scope giảm |
 
 ---
 
-> **Technical details (code, commands, params, topics, known issues):**
-> → Xem `PROJECT_STATE.md`
+## 7. REFERENCES
+
+- **Kloeser 2020** — *NMPC for Racing Using a Singularity-Free Path-Parametric
+  Model.* Base cho 6-state bicycle, acados RTI+HPIPM.
+- **acados v0.3.5** — `~/acados/`. WARNING *Gauss-Newton + EXTERNAL* bình thường.
+- **tera_renderer v0.2.0** — build từ Rust source (required by acados).
+- **Ignition Gazebo 6 Fortress** — `ign` CLI, `ignition.msgs.*`.
+
+---
+
+## 8. POINTERS
+
+- [PROJECT_STATE.md](PROJECT_STATE.md) — technical index.
+- [documents/plan/](documents/plan/) — phase plans.
+- [documents/state/](documents/state/) — current state chi tiết.
+- [documents/technical_docs/](documents/technical_docs/) — thesis-style writeup.

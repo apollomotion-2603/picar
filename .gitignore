@@ -15,3 +15,12 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+
+# Loại bỏ file nén lớn
+resources/test10.zip
+*.zip
+
+# Loại bỏ dữ liệu ROS2 Bag
+*.db3
+*.mcap
+data/bags/
