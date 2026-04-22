@@ -33,8 +33,6 @@ class NMPCNode(Node):
 
         # Traction force model (shared with drive_model / Nhã's bicycle_model)
         self.declare_parameter('mass', 1.5)
-        self.declare_parameter('C1', 0.5)
-        self.declare_parameter('C2', 15.5)
         self.declare_parameter('Cm1', 0.28)
         self.declare_parameter('Cm2', 0.05)
         self.declare_parameter('Cr0', 0.006)
@@ -83,8 +81,6 @@ class NMPCNode(Node):
         self.LF         = self.get_parameter('lf').value
         self.LR         = self.get_parameter('lr').value
         self.MASS       = self.get_parameter('mass').value
-        self.C1         = self.get_parameter('C1').value
-        self.C2         = self.get_parameter('C2').value
         self.CM1        = self.get_parameter('Cm1').value
         self.CM2        = self.get_parameter('Cm2').value
         self.CR0        = self.get_parameter('Cr0').value
@@ -121,7 +117,7 @@ class NMPCNode(Node):
             f'Building 6-state NMPC solver | N={self.N} Tf={self.TF}s ...')
         self.constraint, self.model_ns, self.solver = acados_settings(
             self.TF, self.N, build_dir,
-            m=self.MASS, C1=self.C1, C2=self.C2,
+            m=self.MASS, lf=self.LF, lr=self.LR,
             Cm1=self.CM1, Cm2=self.CM2,
             Cr0=self.CR0, Cr2=self.CR2, cr3=self.CR3,
             n_max=self.N_MAX, delta_max=self.DELTA_MAX,

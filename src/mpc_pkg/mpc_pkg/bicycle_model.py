@@ -7,6 +7,10 @@ Param   p = [kappa_p]   -- curvature at current horizon stage [1/m]
 
 Based on Nhã's bicycle_model.py (test10/src/race_cars),
 adapted for Phi's RC car Gazebo sim.
+
+Fix 2026-04-22: Thay C1/C2 parameterised model bằng standard bicycle
+model (lf/lr geometry). C2=15.5 gây heading rate sai 3.4x so với thực tế
+→ xe văng ở cua gắt Map 3 DLC.
 """
 
 import types
@@ -16,8 +20,8 @@ from casadi import *
 
 def bicycle_model(
     m=1.5,
-    C1=0.5,
-    C2=15.5,
+    lf=0.11,
+    lr=0.11,
     Cm1=0.28,
     Cm2=0.05,
     Cr0=0.006,
@@ -83,19 +87,22 @@ def bicycle_model(
     p = vertcat(kappa_p)
 
     # ── Dynamics (spatial bicycle model — Kloeser 2020 Eq. 10) ────────
+    # Standard bicycle model: β = lr/(lf+lr) · δ  (small-angle approx of atan)
+    # α̇ = (v/lr)·sin(β) − κ·ṡ   (NOT v·C2·δ which was 3.4× too fast)
+    beta  = (lr / (lf + lr)) * delta
     Fxd   = (Cm1 - Cm2 * v) * D - Cr2 * v * v - Cr0 * tanh(cr3 * v)
-    sdota = (v * cos(alpha + C1 * delta)) / (1 - kappa_p * n)
+    sdota = (v * cos(alpha + beta)) / (1 - kappa_p * n)
     f_expl = vertcat(
         sdota,
-        v * sin(alpha + C1 * delta),
-        v * C2 * delta - kappa_p * sdota,
-        Fxd / m * cos(C1 * delta),
+        v * sin(alpha + beta),
+        (v / lr) * sin(beta) - kappa_p * sdota,
+        Fxd / m,
         derD,
         derDelta,
     )
 
     # ── Nonlinear constraint expressions ──────────────────────────────
-    a_lat  = C2 * v * v * delta + Fxd * sin(C1 * delta) / m
+    a_lat  = (v * v / lr) * sin(beta) + Fxd * sin(beta) / m
     a_long = Fxd / m
 
     # ── Model bounds ──────────────────────────────────────────────────
@@ -128,7 +135,7 @@ def bicycle_model(
 
     # ── Model struct ──────────────────────────────────────────────────
     params = types.SimpleNamespace()
-    params.C1  = C1;  params.C2  = C2
+    params.lf  = lf;  params.lr  = lr
     params.Cm1 = Cm1; params.Cm2 = Cm2
     params.Cr0 = Cr0; params.Cr2 = Cr2; params.cr3 = cr3
 

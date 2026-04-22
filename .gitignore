@@ -3,8 +3,8 @@ build/
 install/
 log/
 
-# Bỏ qua bộ nhớ đệm NMPC (ACADOS)
-nmpc_build/
+# Bỏ qua bộ nhớ đệm NMPC (ACADOS) — cả nmpc_build/ và nmpc_build_6state/
+nmpc_build*/
 *.json
 
 # Bỏ qua các thư mục cache của Python

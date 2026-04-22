@@ -25,8 +25,8 @@ def acados_settings(
     build_dir,
     # Vehicle dynamic params (passed from yaml or defaults)
     m=1.5,
-    C1=0.5,
-    C2=15.5,
+    lf=0.11,
+    lr=0.11,
     Cm1=0.28,
     Cm2=0.05,
     Cr0=0.006,
@@ -58,7 +58,7 @@ def acados_settings(
 
     # ── Build model (parameterized) ───────────────────────────────────
     model, constraint = bicycle_model(
-        m=m, C1=C1, C2=C2,
+        m=m, lf=lf, lr=lr,
         Cm1=Cm1, Cm2=Cm2, Cr0=Cr0, Cr2=Cr2, cr3=cr3,
         n_min=-n_max, n_max=n_max,
         throttle_min=throttle_min, throttle_max=throttle_max,
@@ -101,12 +101,18 @@ def acados_settings(
     #   n:     large  — penalize lateral offset strongly
     #   α:     large  — penalize heading error
     #   v:     small  — velocity tracked by adaptive reference
-    #   D, δ:  small  — regularise actuator states
-    Q = np.diag([1e-1, 5e1, 1e1, 1e-1, 1e-3, 5e-3])
+    #   D:     small  — regularise throttle state
+    #   δ:     moderate — prevent steering oscillation on straights
+    #
+    # Re-tuned 2026-04-22 after C2→lf/lr model fix:
+    #   Old model C2=15.5 gave α̇ gain ~15.5, new correct gain ~4.55.
+    #   Solver now uses ~3.4× larger δ → steering weights ×10 (≈3.4²)
+    #   to restore straight-line stability.
+    Q = np.diag([1e-1, 5e1, 1e1, 1e-1, 1e-3, 5e-2])
     R = np.eye(nu)
     R[0, 0] = 1e-3   # derD weight
-    R[1, 1] = 5e-3   # derDelta weight
-    Qe = np.diag([5e-1, 1e2, 2e1, 1e-1, 5e-3, 2e-3])
+    R[1, 1] = 5e-2   # derDelta weight (5e-3→5e-2: penalize steering oscillation)
+    Qe = np.diag([5e-1, 1e2, 2e1, 1e-1, 5e-3, 2e-2])
 
     ocp.cost.cost_type   = "LINEAR_LS"
     ocp.cost.cost_type_e = "LINEAR_LS"

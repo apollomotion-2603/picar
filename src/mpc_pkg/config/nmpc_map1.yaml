@@ -6,8 +6,6 @@ nmpc_node:
 
     # Traction force model
     mass: 1.5
-    C1: 0.5
-    C2: 15.5
     Cm1: 0.28
     Cm2: 0.05
     Cr0: 0.006
