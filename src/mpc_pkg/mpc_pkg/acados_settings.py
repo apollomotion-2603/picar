@@ -104,15 +104,16 @@ def acados_settings(
     #   D:     small  — regularise throttle state
     #   δ:     moderate — prevent steering oscillation on straights
     #
-    # Re-tuned 2026-04-22 after C2→lf/lr model fix:
-    #   Old model C2=15.5 gave α̇ gain ~15.5, new correct gain ~4.55.
-    #   Solver now uses ~3.4× larger δ → steering weights ×10 (≈3.4²)
-    #   to restore straight-line stability.
-    Q = np.diag([1e-1, 5e1, 1e1, 1e-1, 1e-3, 5e-2])
+    # Bag 11 baseline (2026-04-20) với điều chỉnh hậu-fix bicycle model (2026-04-22):
+    #   kappa smoothing + R/Q giữ như bag 11 để tránh steering oscillation lúc ra cua.
+    #   Giữ Q[5]=2e-1 (so với 5e-3 bag 11) vì bicycle model đã đúng lf/lr — solver
+    #   giờ dùng δ nhỏ hơn ~3.4× nên cần state weight cao hơn để chặn chattering
+    #   trên đường thẳng.
+    Q = np.diag([1e-1, 5e1, 1e1, 1e-1, 1e-3, 2e-1])
     R = np.eye(nu)
     R[0, 0] = 1e-3   # derD weight
-    R[1, 1] = 5e-2   # derDelta weight (5e-3→5e-2: penalize steering oscillation)
-    Qe = np.diag([5e-1, 1e2, 2e1, 1e-1, 5e-3, 2e-2])
+    R[1, 1] = 5e-2   # derDelta weight (bag 11 = 5e-3; 5e-2 nhẹ hơn 5e-1 trước)
+    Qe = np.diag([5e-1, 1e2, 2e1, 1e-1, 5e-3, 5e-2])
 
     ocp.cost.cost_type   = "LINEAR_LS"
     ocp.cost.cost_type_e = "LINEAR_LS"
